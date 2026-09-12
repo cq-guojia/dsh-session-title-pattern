@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
-// 下面三个只为拿到类型增强（SlotMap / SessionStandardProps / ctx.remote），
+// 下面几个只为拿到类型增强（SlotMap / SessionStandardProps / ctx.remote），
 // 全部是 type-only，运行时不会引入，因此不会触发客户端产物纯度闸门。
 import type {} from '@deepseek-ai/dsh-client-ui-session/client';
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
@@ -18,6 +18,11 @@ const ENTRY_ID = 'generate-title';
 
 /** 触发 host 端重算的命令行。 */
 const RETITLE_LINE = '/retitle';
+
+/** 浏览器控制台前缀，便于排查。 */
+const LOG = '[dsh-session-title-pattern]';
+
+type RemoteCommands = Context['remote']['commands'];
 
 // 刻意不导出 inject。
 // 客户端 entry 若声明了当前组合无法满足的依赖，会一直 pending，而 pending 的
@@ -40,9 +45,14 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
 }
 
 export function apply(ctx: Context): void {
-  ctx.inject(['slots', 'remote', 'remote.commands'], (sub) => {
-    const commands = sub.remote.commands;
+  // remote 命名空间的挂载可能晚于 slot 注册，所以不能提前闭包捕获 ——
+  // 提前捕获会拿到 undefined，表现为「按钮在但点了没反应」。
+  let commands: RemoteCommands | undefined;
+  ctx.inject(['remote', 'remote.commands'], (sub) => {
+    commands = sub.remote.commands;
+  });
 
+  ctx.inject(['slots'], (sub) => {
     // slots.inject 等待 owner 声明该 slot，owner 折叠时贡献自动移除。
     sub.slots.inject(SLOT, () =>
       sub.slots.register(
@@ -51,10 +61,14 @@ export function apply(ctx: Context): void {
           id: ENTRY_ID,
           // 数值越小越先渲染，取负值保证排在「重命名 / 分叉 / 归档」之前。
           order: -100,
-          // factory 在 apply 世界中运行，闭包捕获 commands；session scope 的
-          // slot 会收到框架解析出的 sessionId。
+          // factory 在 apply 世界中运行；session scope 的 slot 会收到框架
+          // 解析出的 sessionId。
           inject: (sessionId) => ({
             generate: () => {
+              if (commands === undefined) {
+                console.warn(`${LOG} remote.commands 尚未就绪，无法执行 ${RETITLE_LINE}`);
+                return;
+              }
               void commands
                 .execute(sessionId, RETITLE_LINE, [])
                 // 失败交由 host 侧的 command/done 记录，这里静默即可。
@@ -65,5 +79,6 @@ export function apply(ctx: Context): void {
         GenerateTitleAction,
       ),
     );
+    console.info(`${LOG} 已注册「生成标题」到 ${SLOT}`);
   });
 }

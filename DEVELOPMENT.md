@@ -11,9 +11,21 @@
 
 ---
 
-## 当前版本：v0.2.3
+## 当前版本：v0.2.4
 
-### v0.2.3（本次）
+### v0.2.4（本次）
+
+修复「按钮不出现」。
+
+- `dsh.client.inject` 里误写了 `@deepseek-ai/dsh-client-ui-slots` —— 它是平台模块，
+  不是 Loader row，不存在的依赖边会让本 entry 永远不 materialize（静默不出现）。
+  已按官方 `ui-open-in-app` 的写法收敛到真实 row。
+- slot 注册不再等 `remote`：改成只等 `slots`，`remote.commands` 在点击时通过
+  可变引用读取。remote 命名空间挂载可能晚于 slot 注册，提前闭包捕获会拿到
+  undefined，表现为「按钮在但点了没反应」。
+- 注册成功时输出 `[dsh-session-title-pattern] 已注册「生成标题」到 ...` 到控制台，便于排查。
+
+### v0.2.3
 
 **修复 v0.2.1 的启动事故。**
 
