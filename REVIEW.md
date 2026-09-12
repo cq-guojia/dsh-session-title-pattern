@@ -185,7 +185,7 @@ static Config: z<Config> = z.object({ ... })
 
 ### #11 斜杠命令消息退化
 
-`/compact` 这类消息，剥离命令后主题为空，原逻辑 `|| type` 会退化成 `260913|指令|指令`。
+`/compact` 这类消息，剥离命令后主题为空，原逻辑 `|| type` 会退化成 `0913｜指令｜指令`。
 
 **修复**：`stripLeadingCommand(raw) || raw` 回退（剥离后为空就用原文）；主题仍为空时只返回 `日期|类型`，**保证标题永远非空**——服务会抛 `session-title provider returned an empty title`。
 
@@ -340,4 +340,4 @@ git commit
 - [ ] 产物导出了 `name`
 - [ ] `lib/client/index.js` 存在
 - [ ] 在 dsh 机器上 `dsh --profile web --dump-config` 能看到本插件层，且 `session-title-llm` 行为 `disabled`
-- [ ] 新建会话发一条消息，标题形如 `260913|接口|登录接口鉴权`，且主题没被截断
+- [ ] 新建会话发一条消息，标题形如 `0913｜接口｜登录接口鉴权`，且主题没被截断

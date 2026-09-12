@@ -32,16 +32,15 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  separator: z.string().default('|'),
+  separator: z.string().default('｜'),
   maxBytes: z.number().step(1).min(20).default(80),
 });
 
-/** 以本地时区格式化 `YYMMDD`。UTC 会让东八区在 00:00-08:00 之间显示成前一天。 */
+/** 以本地时区格式化 `MMDD`。UTC 会让东八区在 00:00-08:00 之间显示成前一天。 */
 function formatPatternDate(now: Date): string {
-  const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
-  return `${yy}${mm}${dd}`;
+  return `${mm}${dd}`;
 }
 
 /** 剥离开头的斜杠命令（`/compact xxx` -> `xxx`），非命令原样返回。 */
@@ -66,7 +65,7 @@ function classifyMessage(msg: SessionTitleUserMessage): string {
 }
 
 /**
- * 拼装 `YYMMDD<sep>类型<sep>主题`。
+ * 拼装 `MMDD<sep>类型<sep>主题`。
  *
  * 全程只做一次字节收口：先按整串拼好，再交给 `truncateTitleUtf8` 按字节裁剪，
  * 它按 code point 迭代，不会切断代理对（emoji 等）。
@@ -89,7 +88,7 @@ function buildTitle(
   const source = stripLeadingCommand(raw) || raw;
   const topic = normalizeSessionTitle(source, config.maxBytes);
 
-  // 主题为空时只留 `日期|类型`，保证标题永远非空（服务会拒绝空标题）。
+  // 主题为空时只留 `日期<sep>类型`，保证标题永远非空（服务会拒绝空标题）。
   return truncateTitleUtf8(
     topic ? `${head}${config.separator}${topic}` : head,
     config.maxBytes,

@@ -1,17 +1,17 @@
 # @cq-guojia/dsh-session-title-pattern
 
-DeepSeek Harness 会话标题插件：用确定性规则把首条人类消息格式化成 `YYMMDD|类型|主题`。
+DeepSeek Harness 会话标题插件：用确定性规则把首条人类消息格式化成 `MMDD｜类型｜主题`。
 不调用模型、零 token 开销、零网络依赖。
 
 ## 标题格式
 
 ```
-YYMMDD|类型|主题
+MMDD｜类型｜主题
 ```
 
-示例：`260913|接口|登录接口鉴权`
+示例：`0913｜接口｜登录接口鉴权`
 
-- **日期** —— 会话创建时的**本地**日期，6 位 `YYMMDD`
+- **日期** —— 会话创建时的**本地**日期，4 位 `MMDD`
 - **类型** —— 按首条消息关键词分类，见[分类规则](#分类规则)
 - **主题** —— 首条消息正文（剥离开头的斜杠命令后），按剩余字节预算截断
 
@@ -59,8 +59,10 @@ dsh plugin --profile web add /path/to/dsh-session-title-pattern
 
 | 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `separator` | string | `\|` | 各段之间的分隔符 |
+| `separator` | string | `｜`（全角竖线） | 各段之间的分隔符 |
 | `maxBytes` | number | `80` | 标题总长度上限（UTF-8 字节），最小 20 |
+
+> 默认分隔符是全角竖线 `｜`（U+FF5C），占 3 个 UTF-8 字节。
 
 > ⚠️ **`maxBytes` 必须 ≤ `session-title` 行的 `maxTitleBytes`**（`dsh-base` 默认为 **80**）。
 > 服务在写入前会按该值二次截断，超出部分被**静默丢弃**，不会有任何报错。

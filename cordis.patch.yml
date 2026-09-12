@@ -1,4 +1,4 @@
-# dsh-session-title-pattern: deterministic YYMMDD|类型|主题 title provider
+# dsh-session-title-pattern: deterministic MMDD｜类型｜主题 title provider
 
 # SessionTitleService.register() 全局只允许一个 provider，重复注册直接抛
 # "session-title provider ... is already registered"。
