@@ -68,6 +68,19 @@ dsh plugin --profile web add /path/to/dsh-session-title-pattern
 > 服务在写入前会按该值二次截断，超出部分被**静默丢弃**，不会有任何报错。
 > 如果你调整了 `session-title.maxTitleBytes`，这里要同步调整。
 
+## 手动生成标题
+
+两种方式，底层是同一个 `/retitle` 命令：
+
+**1. 菜单按钮** —— 会话头部的操作菜单里会出现「生成标题」，排在「重命名 / 分叉会话 / 归档会话」之前。会话正在生成回答时按钮会禁用。
+
+**2. 直接敲命令** —— 在输入框输入 `/retitle` 回车。
+
+自动命名只在「非 fork 子会话 且 是第一条人类消息 且 尚无标题」时触发，所以手动入口是后续改标题的唯一方式。
+
+> 手动重命名过的会话会进入「已固定」状态，自动命名随之停止调度。
+> `/retitle` 是解除固定、让规则重新接管的唯一途径。
+
 ## 分类规则
 
 按**顺序**匹配，先命中先赢；全部未命中则为 `其他`。
@@ -86,6 +99,24 @@ dsh plugin --profile web add /path/to/dsh-session-title-pattern
 | 10 | `修复` | 错误、bug、异常、fix、报错、问题、错、故障 |
 | 11 | `文档` | 文档、doc、readme、说明、帮助、教程 |
 | — | `其他` | 兜底 |
+
+### 客户端按钮导致启动失败时的自救
+
+从 v0.2.1 起本插件带浏览器端代码（package.json 中的 `dsh.client`）。若产物与你的 dsh
+版本不兼容，dsh 会启动失败。两种恢复方式：
+
+1. **只关掉本插件** —— 在 profile 的 `cordis.patch.yml` 里写：
+
+   ```yaml
+   - id: session-title-pattern
+     disabled: true
+   ```
+
+2. **回退到纯命令版** —— v0.2.0 只有 host 端命令，没有浏览器代码：
+
+   ```bash
+   dsh plugin --profile web add git+https://github.com/cq-guojia/dsh-session-title-pattern.git#v0.2.0
+   ```
 
 ## 已知限制
 

@@ -284,6 +284,15 @@ if (/创建|新增|insert|add|write|生成|写|做|建|弄/.test(text)) return '
 
 ### 3.3 前端能力
 
+> **v0.2.1 已落地「手动生成标题」按钮**。实现过程中确认了两条重要约束，记录下来：
+>
+> 1. **第三方插件无法新增 Typert Remote**。内置「重命名」走 `ctx.remote.session.rename(...)`，
+>    该 Remote 由 dsh 主仓库构建时的 Typert 生成器产出，out-of-tree 插件跑不了生成器。
+>    可行替代是复用已存在的 `commands` namespace —— `CommandRuntime.execute` 本身就是 `@Remote`。
+> 2. **客户端产物是 CJS 闭包工厂，不是普通 ESM**：`window.__ModuleLoader__.load({ id, factory })`，
+>    且存在构建期「纯度闸门」：模块表外的 `@deepseek-ai/*` 值导入会直接让构建失败。
+>    可用 external 只有 `PLATFORM_MODULES` 那 9 个，`ui-session` / `ui-conversation` 只能 type-only 导入。
+
 用户已明确的需求及落地路径：
 
 | 需求 | 落地方式 |

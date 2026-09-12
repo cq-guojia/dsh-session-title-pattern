@@ -11,9 +11,22 @@
 
 ---
 
-## 当前版本：v0.1.2
+## 当前版本：v0.2.1
 
-### v0.1.2（本次）
+### v0.2.1（本次）
+
+新增会话头部「生成标题」按钮（客户端 Slots 贡献）。
+
+- Host：注册 `/retitle` 命令，`ctx.sessionTitle.refresh(agent.session, signal)`
+- Client：`conversation.session.header.actions` slot，`order: -100` 排最前，`id: generate-title`
+- 触发链路：按钮 → `ctx.remote.commands.execute(sessionId, '/retitle', [], signal)` → host 命令
+- 构建：客户端产物改为官方 CJS 闭包契约（`window.__ModuleLoader__.load`），产出单文件 `lib/client.js`
+
+### v0.2.0
+
+新增 host 端 `/retitle` 命令（`commands` 可选注入）。零启动风险，输入框可直接敲命令。
+
+### v0.1.2
 
 标题格式调整：日期 `YYMMDD` → `MMDD`，分隔符默认改为全角竖线 `｜`。
 
