@@ -3,19 +3,24 @@
   "description": "Deterministic session title formatter: YYMMDD|类型|主题",
   "version": "0.1.0",
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "main": "lib/index.mjs",
+  "types": "lib/index.d.mts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
-    "lib/types/**/*.d.ts"
+    "lib/index.mjs",
+    "lib/index.d.mts"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-session-title": "^0.1.5-rc.2",
