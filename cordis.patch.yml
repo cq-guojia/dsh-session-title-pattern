@@ -1,0 +1,7 @@
+# dsh-session-title-pattern: deterministic YYMMDD|类型|主题 title provider
+
+- insert:
+    - id: session-title-pattern
+      name: '@deepseek-ai/dsh-session-title-pattern'
+      apply: host
+      config: {}
