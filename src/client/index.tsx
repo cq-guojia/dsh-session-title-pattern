@@ -7,6 +7,9 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client';
 // ctx.slots 服务的类型增强在 renderer 包里，不在 slots 包里。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+// 官方基础组件。它在模块表（PLATFORM_MODULES）里，所以可以正常按 external 引入，
+// 不会被内联、也不会触发纯度闸门。用它是为了让按钮与头部其它控件风格一致。
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -42,9 +45,9 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。
   const running = useSession((snapshot) => snapshot.running);
   return (
-    <button type="button" disabled={running} onClick={generate}>
+    <Button variant="ghost" size="sm" disabled={running} onClick={generate}>
       生成标题
-    </button>
+    </Button>
   );
 }
 

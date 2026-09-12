@@ -11,9 +11,18 @@
 
 ---
 
-## 当前版本：v0.2.5
+## 当前版本：v0.2.6
 
-### v0.2.5（本次）
+### v0.2.6（本次）
+
+按钮改用官方 `@deepseek-ai/dsh-client-ui-primitives` 的 `Button`（`variant="ghost"` +
+`size="sm"`），与头部其它控件风格一致。原先渲染的是裸 `<button>`，这多半才是「位置不好」
+的真实原因。该包在 PLATFORM_MODULES 内，按 external 引入即可，不会内联、不触发纯度闸门。
+
+另：再次核实「会话头部最右『更多』菜单」也**不可扩展** ——
+`@deepseek-ai/dsh-session-log-export`（该菜单的所有者）的编译产物里没有任何 `renderSlot` 调用。
+
+### v0.2.5
 
 按钮位置从 `conversation.session.header.actions`（紧挨标题，会把标题挤窄）移到同级的
 `conversation.session.header.utilities`（同一行靠右），`order` 由 -100 改为 100。
