@@ -16,7 +16,10 @@ export const name = 'dsh-session-title-pattern';
 /**
  * 会话头部右侧的工具区。cardinality 为 list，注册新 id 即增量追加，不会覆盖内置项。
  *
- * 之前用同级的 `...header.actions`，那个位置紧挨标题会把标题挤窄。
+ * 为什么是图标而不是文字按钮：头部三组右侧容器（actions / utilities / corner）
+ * 都是 `flex:none`，而标题所在的 `.titleCluster` 是 `flex:1` —— 标题吃的是
+ * 「剩余宽度」。也就是说我们在这里多宽，标题就少多宽。文字按钮约 68px，
+ * 图标按钮约 36px，能还给标题 30 多像素。
  */
 const SLOT = 'conversation.session.header.utilities';
 
@@ -41,13 +44,34 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   generate: () => void;
 };
 
+/**
+ * 四个尖角的星形，表示「生成」。
+ *
+ * 必须内联：`ui-primitives` 只导出文件/链接/引用类图标，没有通用图标集。
+ */
+const SparkleIcon = (
+  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path
+      d="M8 1.8 9.35 5.6 13.2 6.95 9.35 8.3 8 12.1 6.65 8.3 2.8 6.95 6.65 5.6Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。
   const running = useSession((snapshot) => snapshot.running);
   return (
-    <Button variant="ghost" size="sm" disabled={running} onClick={generate}>
-      生成标题
-    </Button>
+    <Button
+      variant="ghost"
+      size="sm"
+      icon={SparkleIcon}
+      disabled={running}
+      onClick={generate}
+      // 图标按钮没有可见文字，标题与无障碍标签都要给。
+      title="生成标题"
+      aria-label="生成标题"
+    />
   );
 }
 

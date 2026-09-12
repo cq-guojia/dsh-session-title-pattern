@@ -11,9 +11,17 @@
 
 ---
 
-## 当前版本：v0.2.6
+## 当前版本：v0.2.7
 
-### v0.2.6（本次）
+### v0.2.7（本次）
+
+按钮改为**图标按钮**（内联四角星 SVG + `title="生成标题"`），不再显示「生成标题」文字。
+
+原因：头部三组右侧容器（`headerActions` / `headerUtilities` / `headerCorner`）都是
+`flex:none`，而标题所在的 `.titleCluster` 是 `flex:1` —— **标题吃的是剩余宽度**，
+右侧每多占 1px，标题就少 1px。文字按钮约 68px，图标按钮约 36px，等于还给标题 30 多像素。
+
+### v0.2.6
 
 按钮改用官方 `@deepseek-ai/dsh-client-ui-primitives` 的 `Button`（`variant="ghost"` +
 `size="sm"`），与头部其它控件风格一致。原先渲染的是裸 `<button>`，这多半才是「位置不好」
