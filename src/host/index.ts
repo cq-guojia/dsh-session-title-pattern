@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery';
 import { SessionTitleProviderId, normalizeSessionTitle } from '@deepseek-ai/dsh-session-title';
 import type { SessionTitleProvider, SessionTitleProviderRequest, SessionTitleProviderResult, SessionTitleUserMessage } from '@deepseek-ai/dsh-session-title';
 
-const name = 'session-title-pattern';
+const name = 'dsh-session-title-pattern';
 
 export const inject = ['sessionTitle'] as const;
 
@@ -30,16 +30,17 @@ function classifyMessage(msg: SessionTitleUserMessage): string {
   if (/^\/|command|指令|命令/.test(text)) return '指令';
   if (/登录|鉴权|auth|login|oauth/.test(text)) return '鉴权';
   if (/接口|api|endpoint|路由/.test(text)) return '接口';
-  if (/查询|search|fetch|获取|read/.test(text)) return '查询';
-  if (/创建|新增|insert|add|write/.test(text)) return '创建';
-  if (/更新|修改|update|edit|patch/.test(text)) return '更新';
-  if (/删除|delete|remove|drop/.test(text)) return '删除';
-  if (/测试|test|单测|集成/.test(text)) return '测试';
-  if (/配置|config|setup/.test(text)) return '配置';
-  if (/错误|bug|异常|fix/.test(text)) return '修复';
-  if (/文档|doc|readme/.test(text)) return '文档';
-  const match = text.match(/[^\s\/\\]{2,8}/);
-  return match ? match[0].slice(0, 4) : '其他';
+  if (/查询|search|fetch|获取|read|什么|如何|为什么|怎么|哪/.test(text)) return '查询';
+  if (/创建|新增|insert|add|write|生成|写|做|建|弄/.test(text)) return '创建';
+  if (/更新|修改|update|edit|patch|改|调整|变|换/.test(text)) return '更新';
+  if (/删除|delete|remove|drop|删|移除|去|清/.test(text)) return '删除';
+  if (/测试|test|单测|集成|验证|检查|跑/.test(text)) return '测试';
+  if (/配置|config|setup|设置|装|部署/.test(text)) return '配置';
+  if (/错误|bug|异常|fix|报错|问题|错|故障/.test(text)) return '修复';
+  if (/文档|doc|readme|说明|帮助|教程/.test(text)) return '文档';
+  // 默认取第一个词（不含空格/标点）
+  const match = text.match(/[^\s\/\\.,，。！？、]+/);
+  return match ? match[0].slice(0, 6) : '其他';
 }
 
 function truncateToBytes(s: string, maxBytes: number): string {
