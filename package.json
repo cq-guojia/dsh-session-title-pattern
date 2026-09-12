@@ -14,7 +14,8 @@
   },
   "files": [
     "lib/index.mjs",
-    "lib/index.d.mts"
+    "lib/index.d.mts",
+    "cordis.patch.yml"
   ],
   "dsh": {
     "bundle": {
