@@ -4,13 +4,13 @@ import { Context } from "@deepseek-ai/cordis";
 //#region src/host/index.d.ts
 export declare const name = "dsh-session-title-pattern";
 /**
- * `commands` 由 dsh-base 的 commands 行提供，但设为可选项：
- * 万一组合里没有命令服务，本插件仍然要能正常生成标题，只是少了手动触发入口。
+ * 必须声明为数组。cordis 的 `Inject` 是 `(keyof M)[] | { [服务名]: 配置 }`，
+ * 写成 `{ required, optional }` 会被当成「需要名为 required / optional 的服务」，
+ * entry 永远 pending，而 pending 的 entry 会让整个 dsh 启动失败。
+ *
+ * `commands` 是可选的，绝不能写在这里 —— 用 apply 里的 `ctx.inject()` 延迟等待。
  */
-export declare const inject: {
-  readonly required: readonly ["sessionTitle"];
-  readonly optional: readonly ["commands"];
-};
+export declare const inject: readonly ["sessionTitle"];
 export interface Config {
   /** 标题各段之间的分隔符。 */
   separator: string;

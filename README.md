@@ -18,10 +18,24 @@ MMDD｜类型｜主题
 ## 安装
 
 ```bash
-dsh plugin --profile web add /path/to/dsh-session-title-pattern
+dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
 ```
 
 安装后**无需任何额外配置**。
+
+### 关于版本锁定（重要）
+
+git 安装有两种写法，行为差别很大：
+
+| 写法 | 行为 |
+| --- | --- |
+| `github:cq-guojia/dsh-session-title-pattern` | 跟踪 `main` 分支，点「更新」会升级到最新 |
+| `github:cq-guojia/dsh-session-title-pattern#v0.2.3` | **钉死在 v0.2.3**，点「更新」永远不会有变化 |
+
+⚠️ 用 `#tag` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec 重装，
+结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新 tag。
+
+需要确定性时用 tag，需要能自动升级时不要带 tag。
 
 ### 与内置 LLM 标题插件的关系
 

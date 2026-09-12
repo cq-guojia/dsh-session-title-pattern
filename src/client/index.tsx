@@ -19,11 +19,10 @@ const ENTRY_ID = 'generate-title';
 /** 触发 host 端重算的命令行。 */
 const RETITLE_LINE = '/retitle';
 
-export const inject = {
-  required: ['slots'],
-  // remote 缺失时只是没有按钮，不该让整个客户端插件挂掉。
-  optional: ['remote', 'remote.commands'],
-} as const;
+// 刻意不导出 inject。
+// 客户端 entry 若声明了当前组合无法满足的依赖，会一直 pending，而 pending 的
+// entry 会让整个 dsh 启动失败。这里改用 apply 内的 ctx.inject() 延迟等待，
+// 依赖没出现的最坏结果只是「没有按钮」。
 
 type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   /** 由注册项的 inject factory 注入：对当前会话执行 /retitle。 */
@@ -41,29 +40,30 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
 }
 
 export function apply(ctx: Context): void {
-  const commands = ctx.remote?.commands;
-  if (!commands) return;
+  ctx.inject(['slots', 'remote', 'remote.commands'], (sub) => {
+    const commands = sub.remote.commands;
 
-  // slots.inject 等待 owner 声明该 slot，owner 折叠时贡献自动移除。
-  ctx.slots.inject(SLOT, () =>
-    ctx.slots.register(
-      {
-        name: SLOT,
-        id: ENTRY_ID,
-        // 数值越小越先渲染，取负值保证排在「重命名 / 分叉 / 归档」之前。
-        order: -100,
-        // factory 在 apply 世界中运行，闭包捕获 commands；session scope 的
-        // slot 会收到框架解析出的 sessionId。
-        inject: (sessionId) => ({
-          generate: () => {
-            void commands
-              .execute(sessionId, RETITLE_LINE, [])
-              // 失败交由 host 侧的 command/done 记录，这里静默即可。
-              .catch(() => undefined);
-          },
-        }),
-      },
-      GenerateTitleAction,
-    ),
-  );
+    // slots.inject 等待 owner 声明该 slot，owner 折叠时贡献自动移除。
+    sub.slots.inject(SLOT, () =>
+      sub.slots.register(
+        {
+          name: SLOT,
+          id: ENTRY_ID,
+          // 数值越小越先渲染，取负值保证排在「重命名 / 分叉 / 归档」之前。
+          order: -100,
+          // factory 在 apply 世界中运行，闭包捕获 commands；session scope 的
+          // slot 会收到框架解析出的 sessionId。
+          inject: (sessionId) => ({
+            generate: () => {
+              void commands
+                .execute(sessionId, RETITLE_LINE, [])
+                // 失败交由 host 侧的 command/done 记录，这里静默即可。
+                .catch(() => undefined);
+            },
+          }),
+        },
+        GenerateTitleAction,
+      ),
+    );
+  });
 }

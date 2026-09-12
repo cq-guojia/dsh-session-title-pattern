@@ -17,13 +17,13 @@ import type {} from '@deepseek-ai/dsh-commands';
 export const name = 'dsh-session-title-pattern';
 
 /**
- * `commands` 由 dsh-base 的 commands 行提供，但设为可选项：
- * 万一组合里没有命令服务，本插件仍然要能正常生成标题，只是少了手动触发入口。
+ * 必须声明为数组。cordis 的 `Inject` 是 `(keyof M)[] | { [服务名]: 配置 }`，
+ * 写成 `{ required, optional }` 会被当成「需要名为 required / optional 的服务」，
+ * entry 永远 pending，而 pending 的 entry 会让整个 dsh 启动失败。
+ *
+ * `commands` 是可选的，绝不能写在这里 —— 用 apply 里的 `ctx.inject()` 延迟等待。
  */
-export const inject = {
-  required: ['sessionTitle'],
-  optional: ['commands'],
-} as const;
+export const inject = ['sessionTitle'] as const;
 
 /** 手动重算标题的命令名（不含斜杠）。 */
 const RETITLE_COMMAND = 'retitle';
@@ -129,16 +129,12 @@ export class SessionTitlePatternProvider implements SessionTitleProvider {
  *
  * `refresh()` 是解除用户 pin 的唯一切入口 —— 用户手动重命名过的会话处于
  * pinned 状态，自动命名会停止调度，只有它能重新接管。
+ *
+ * 只在 `commands` 已就绪的上下文中调用（见 apply 里的 `ctx.inject`）。
  */
-function registerRetitleCommand(ctx: Context, logger: { warn(message: string): void }): void {
-  const commands = ctx.commands;
-  if (!commands) {
-    logger.warn('未找到命令服务（dsh-commands），跳过 /retitle 注册；自动生成标题不受影响。');
-    return;
-  }
-
+function registerRetitleCommand(ctx: Context): void {
   ctx.effect(() =>
-    commands.register({
+    ctx.commands.register({
       name: RETITLE_COMMAND,
       description: '生成标题',
       // 命令不接受输入，没必要在会话日志里重复记一条空输入。
@@ -180,5 +176,10 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => dispose);
 
-  registerRetitleCommand(ctx, logger);
+  // commands 由 dsh-base 提供，但绝不能写进 inject 声明：组合里一旦没有命令服务，
+  // 声明式依赖会让本 entry 永远 pending，而 pending 的 entry 会让 dsh 启动失败。
+  // 用 ctx.inject 延迟等待：它没出现就只是没有 /retitle，自动生成标题照常工作。
+  ctx.inject(['commands'], (commandCtx) => {
+    registerRetitleCommand(commandCtx);
+  });
 }

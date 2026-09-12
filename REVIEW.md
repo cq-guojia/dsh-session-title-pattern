@@ -318,7 +318,44 @@ if (/创建|新增|insert|add|write|生成|写|做|建|弄/.test(text)) return '
 - 截断：emoji 边界、超长输入、纯控制字符（会被 `normalizeSessionTitle` 清空）
 - 边界：空消息、`/compact` 裸命令、`maxBytes` 极小值
 
-### 3.5 `request.signal` 接入
+### 3.5 `inject` 声明形态（血泪教训）
+
+v0.2.1 曾用对象式写法声明可选依赖，**导致 dsh 完全无法启动**：
+
+```ts
+// 错误写法
+export const inject = { required: ['sessionTitle'], optional: ['commands'] }
+```
+
+cordis 的 `Inject` 实际定义是：
+
+```ts
+export type Inject<M = Dict> = (keyof M)[] | { [K in keyof M]?: M[K] }
+```
+
+也就是「服务名 → 配置」映射，**没有 required / optional 的概念**。上面那种写法被解释成
+「需要名为 `required` 和 `optional` 的两个服务」，entry 永远 pending，启动时报：
+
+```
+@cq-guojia/dsh-session-title-pattern: pending (waiting for services: required, optional)
+Error: dsh: plugin tree failed to load: dsh: 1 entry did not activate
+```
+
+**正确做法**：
+
+- 必填依赖：数组形式 `export const inject = ['sessionTitle']`
+- 可选依赖：**绝不写进 inject**，改用 apply 内的延迟加载
+
+```ts
+ctx.inject(['commands'], (sub) => {
+  sub.effect(() => sub.commands.register(definition))
+})
+```
+
+`ctx.inject()` 返回的是子 fiber，**不是 Loader entry**，因此依赖永不出现也只是这段代码不执行，
+不会把整个 dsh 拖下水。v0.2.3 起 host 与 client 两端都采用这个策略：宁可功能降级，绝不阻断启动。
+
+### 3.6 `request.signal` 接入
 
 当前 `generate()` 是同步纯计算，不消费 `signal` 无影响。**但一旦接入模型调用（3.3 的 LLM 策略）就必须处理**，否则取消/超时无法传导。
 

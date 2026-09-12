@@ -11,7 +11,24 @@
 
 ---
 
-## 当前版本：v0.2.2
+## 当前版本：v0.2.3
+
+### v0.2.3（本次）
+
+**修复 v0.2.1 的启动事故。**
+
+v0.2.1 用 `inject = { required: [...], optional: [...] }` 声明依赖，但 cordis 的
+`Inject` 是「服务名 → 配置」映射，没有 required/optional 概念。结果 entry 永远
+pending，dsh 直接起不来：
+
+```
+@cq-guojia/dsh-session-title-pattern: pending (waiting for services: required, optional)
+Error: dsh: plugin tree failed to load: dsh: 1 entry did not activate
+```
+
+修法：必填依赖回到数组形式，可选依赖一律改用 `ctx.inject()` 延迟加载 ——
+子 fiber 不是 Loader entry，依赖永不出现也只是功能降级，不会阻断启动。
+host 与 client 两端都已采用。
 
 ### v0.2.2
 
