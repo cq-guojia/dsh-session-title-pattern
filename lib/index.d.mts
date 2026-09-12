@@ -5,14 +5,14 @@ import { Context } from "@deepseek-ai/cordis";
 export declare const inject: readonly ["sessionTitle"];
 export declare const Config: z<Schemastery.ObjectS<{
   /** Title separator, defaults to `|`. */
-  separator: any;
+  separator: string;
   /** Maximum total title length in UTF-8 bytes. */
-  maxBytes: any;
+  maxBytes: number;
 }>, Schemastery.ObjectT<{
   /** Title separator, defaults to `|`. */
-  separator: any;
+  separator: string;
   /** Maximum total title length in UTF-8 bytes. */
-  maxBytes: any;
+  maxBytes: number;
 }>>;
 export type Config = z.infer<typeof Config>;
 export declare class SessionTitlePatternProvider implements SessionTitleProvider {

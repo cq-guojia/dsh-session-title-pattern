@@ -9,15 +9,13 @@ export const inject = ['sessionTitle'] as const;
 
 export const Config = z.object({
   /** Title separator, defaults to `|`. */
-  separator: z.string().optional(),
+  separator: z.string().default('|'),
   /** Maximum total title length in UTF-8 bytes. */
-  maxBytes: z.number().optional(),
+  maxBytes: z.number().default(120),
 });
 
 export type Config = z.infer<typeof Config>;
 
-const DEFAULT_SEPARATOR = '|';
-const DEFAULT_MAX_BYTES = 120;
 
 function formatPatternDate(): string {
   const now = new Date();
@@ -28,7 +26,7 @@ function formatPatternDate(): string {
 }
 
 function classifyMessage(msg: SessionTitleUserMessage): string {
-  const text = (msg.content ?? '').trim().toLowerCase();
+  const text = (msg.text ?? '').trim().toLowerCase();
   if (/^\/|command|指令|命令/.test(text)) return '指令';
   if (/登录|鉴权|auth|login|oauth/.test(text)) return '鉴权';
   if (/接口|api|endpoint|路由/.test(text)) return '接口';
@@ -62,13 +60,12 @@ function buildTitle(messages: readonly SessionTitleUserMessage[], config: Config
   if (!first) return '';
   const date = formatPatternDate();
   const type = classifyMessage(first);
-  const raw = (first.content ?? '').trim();
+  const raw = (first.text ?? '').trim();
   const clean = raw.replace(/^\/\S+\s*/, '').slice(0, 40);
-  const topic = normalizeSessionTitle(clean) || type;
-  const sep = config.separator ?? DEFAULT_SEPARATOR;
-  const maxBytes = config.maxBytes ?? DEFAULT_MAX_BYTES;
+  const topic = normalizeSessionTitle(clean, config.maxBytes) || type;
+  const sep = config.separator;
   const pattern = `${date}${sep}${type}${sep}${topic}`;
-  return truncateToBytes(pattern, maxBytes);
+  return truncateToBytes(pattern, config.maxBytes);
 }
 
 export class SessionTitlePatternProvider implements SessionTitleProvider {

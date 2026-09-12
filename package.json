@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-session-title-pattern",
+  "name": "@cq-guojia/dsh-session-title-pattern",
   "description": "Deterministic session title formatter: YYMMDD|类型|主题",
   "version": "0.1.0",
   "type": "module",

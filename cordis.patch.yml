@@ -2,6 +2,6 @@
 
 - insert:
     - id: session-title-pattern
-      name: '@deepseek-ai/dsh-session-title-pattern'
+      name: '@cq-guojia/dsh-session-title-pattern'
       apply: host
       config: {}
