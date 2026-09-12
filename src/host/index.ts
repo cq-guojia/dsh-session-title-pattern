@@ -11,10 +11,22 @@ import type {
   SessionTitleProviderResult,
   SessionTitleUserMessage,
 } from '@deepseek-ai/dsh-session-title';
+// 仅为拿到 ctx.commands 的类型增强，不引入任何运行时值。
+import type {} from '@deepseek-ai/dsh-commands';
 
 export const name = 'dsh-session-title-pattern';
 
-export const inject = ['sessionTitle'] as const;
+/**
+ * `commands` 由 dsh-base 的 commands 行提供，但设为可选项：
+ * 万一组合里没有命令服务，本插件仍然要能正常生成标题，只是少了手动触发入口。
+ */
+export const inject = {
+  required: ['sessionTitle'],
+  optional: ['commands'],
+} as const;
+
+/** 手动重算标题的命令名（不含斜杠）。 */
+const RETITLE_COMMAND = 'retitle';
 
 /** 兜底类型标签：规则全部未命中时使用。 */
 const FALLBACK_TYPE = '其他';
@@ -112,6 +124,40 @@ export class SessionTitlePatternProvider implements SessionTitleProvider {
   }
 }
 
+/**
+ * 注册 `/retitle` 命令：手动重算一次当前会话标题。
+ *
+ * `refresh()` 是解除用户 pin 的唯一切入口 —— 用户手动重命名过的会话处于
+ * pinned 状态，自动命名会停止调度，只有它能重新接管。
+ */
+function registerRetitleCommand(ctx: Context, logger: { warn(message: string): void }): void {
+  const commands = ctx.commands;
+  if (!commands) {
+    logger.warn('未找到命令服务（dsh-commands），跳过 /retitle 注册；自动生成标题不受影响。');
+    return;
+  }
+
+  ctx.effect(() =>
+    commands.register({
+      name: RETITLE_COMMAND,
+      description: '生成标题',
+      // 命令不接受输入，没必要在会话日志里重复记一条空输入。
+      recordInput: false,
+      handler: async ({ agent, signal }) => {
+        try {
+          const snapshot = await ctx.sessionTitle.refresh(agent.session, signal);
+          if (snapshot === undefined) {
+            return { kind: 'error', text: '当前会话还没有可用于生成标题的消息' };
+          }
+          return { kind: 'success', text: snapshot.title };
+        } catch (error) {
+          return { kind: 'error', text: `生成标题失败：${String(error)}` };
+        }
+      },
+    }),
+  );
+}
+
 export function apply(ctx: Context, config: Config): void {
   const provider = new SessionTitlePatternProvider(config);
   const logger = ctx.logger(name);
@@ -133,4 +179,6 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.effect(() => dispose);
+
+  registerRetitleCommand(ctx, logger);
 }

@@ -3,7 +3,14 @@ import { SessionTitleProvider, SessionTitleProviderId, SessionTitleProviderReque
 import { Context } from "@deepseek-ai/cordis";
 //#region src/host/index.d.ts
 export declare const name = "dsh-session-title-pattern";
-export declare const inject: readonly ["sessionTitle"];
+/**
+ * `commands` 由 dsh-base 的 commands 行提供，但设为可选项：
+ * 万一组合里没有命令服务，本插件仍然要能正常生成标题，只是少了手动触发入口。
+ */
+export declare const inject: {
+  readonly required: readonly ["sessionTitle"];
+  readonly optional: readonly ["commands"];
+};
 export interface Config {
   /** 标题各段之间的分隔符。 */
   separator: string;
