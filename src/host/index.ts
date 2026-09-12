@@ -1,28 +1,52 @@
-import { Context } from '@deepseek-ai/cordis';
+import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { SessionTitleProviderId, normalizeSessionTitle } from '@deepseek-ai/dsh-session-title';
-import type { SessionTitleProvider, SessionTitleProviderRequest, SessionTitleProviderResult, SessionTitleUserMessage } from '@deepseek-ai/dsh-session-title';
+import {
+  SessionTitleProviderId,
+  normalizeSessionTitle,
+  truncateTitleUtf8,
+} from '@deepseek-ai/dsh-session-title';
+import type {
+  SessionTitleProvider,
+  SessionTitleProviderRequest,
+  SessionTitleProviderResult,
+  SessionTitleUserMessage,
+} from '@deepseek-ai/dsh-session-title';
 
-const name = 'dsh-session-title-pattern';
+export const name = 'dsh-session-title-pattern';
 
 export const inject = ['sessionTitle'] as const;
 
-export const Config = z.object({
-  /** Title separator, defaults to `|`. */
+/** 兜底类型标签：规则全部未命中时使用。 */
+const FALLBACK_TYPE = '其他';
+
+export interface Config {
+  /** 标题各段之间的分隔符。 */
+  separator: string;
+  /**
+   * 标题总长度上限（UTF-8 字节）。
+   *
+   * 必须 <= `session-title` 行的 `maxTitleBytes`（dsh-base 默认 80），
+   * 否则服务在写入前会二次截断，超出部分被静默丢弃。
+   */
+  maxBytes: number;
+}
+
+export const Config: z<Config> = z.object({
   separator: z.string().default('|'),
-  /** Maximum total title length in UTF-8 bytes. */
-  maxBytes: z.number().default(120),
+  maxBytes: z.number().step(1).min(20).default(80),
 });
 
-export type Config = z.infer<typeof Config>;
-
-
-function formatPatternDate(): string {
-  const now = new Date();
-  const yy = String(now.getUTCFullYear()).slice(-2);
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
+/** 以本地时区格式化 `YYMMDD`。UTC 会让东八区在 00:00-08:00 之间显示成前一天。 */
+function formatPatternDate(now: Date): string {
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
   return `${yy}${mm}${dd}`;
+}
+
+/** 剥离开头的斜杠命令（`/compact xxx` -> `xxx`），非命令原样返回。 */
+function stripLeadingCommand(text: string): string {
+  return text.replace(/^\/\S+\s*/, '');
 }
 
 function classifyMessage(msg: SessionTitleUserMessage): string {
@@ -38,35 +62,38 @@ function classifyMessage(msg: SessionTitleUserMessage): string {
   if (/配置|config|setup|设置|装|部署/.test(text)) return '配置';
   if (/错误|bug|异常|fix|报错|问题|错|故障/.test(text)) return '修复';
   if (/文档|doc|readme|说明|帮助|教程/.test(text)) return '文档';
-  // 默认取第一个词（不含空格/标点）
-  const match = text.match(/[^\s\/\\.,，。！？、]+/);
-  return match ? match[0].slice(0, 6) : '其他';
+  return FALLBACK_TYPE;
 }
 
-function truncateToBytes(s: string, maxBytes: number): string {
-  let bytes = 0;
-  let result = '';
-  for (const cp of s) {
-    const encoded = new TextEncoder().encode(cp);
-    const len = encoded.length;
-    if (bytes + len > maxBytes) break;
-    bytes += len;
-    result += cp;
-  }
-  return result;
-}
-
-function buildTitle(messages: readonly SessionTitleUserMessage[], config: Config): string {
+/**
+ * 拼装 `YYMMDD<sep>类型<sep>主题`。
+ *
+ * 全程只做一次字节收口：先按整串拼好，再交给 `truncateTitleUtf8` 按字节裁剪，
+ * 它按 code point 迭代，不会切断代理对（emoji 等）。
+ */
+function buildTitle(
+  messages: readonly SessionTitleUserMessage[],
+  config: Config,
+  now: Date = new Date(),
+): string {
   const first = messages[0];
+  // 服务只在存在合格人类消息时才会调用 provider，此分支实际上不可达；
+  // 真走到这里 messageSeqs 也会是空数组，服务会先以 "must identify at least
+  // one source message seq" 拒绝，这里返回空串只是保持函数纯度。
   if (!first) return '';
-  const date = formatPatternDate();
-  const type = classifyMessage(first);
+
   const raw = (first.text ?? '').trim();
-  const clean = raw.replace(/^\/\S+\s*/, '').slice(0, 40);
-  const topic = normalizeSessionTitle(clean, config.maxBytes) || type;
-  const sep = config.separator;
-  const pattern = `${date}${sep}${type}${sep}${topic}`;
-  return truncateToBytes(pattern, config.maxBytes);
+  const head = `${formatPatternDate(now)}${config.separator}${classifyMessage(first)}`;
+
+  // 斜杠命令剥离后可能什么都不剩（`/compact`），此时退回原文，避免主题为空。
+  const source = stripLeadingCommand(raw) || raw;
+  const topic = normalizeSessionTitle(source, config.maxBytes);
+
+  // 主题为空时只留 `日期|类型`，保证标题永远非空（服务会拒绝空标题）。
+  return truncateTitleUtf8(
+    topic ? `${head}${config.separator}${topic}` : head,
+    config.maxBytes,
+  );
 }
 
 export class SessionTitlePatternProvider implements SessionTitleProvider {
@@ -79,28 +106,32 @@ export class SessionTitlePatternProvider implements SessionTitleProvider {
   }
 
   async generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult> {
-    const title = buildTitle(request.messages, this.config);
     return {
-      title,
+      title: buildTitle(request.messages, this.config),
       messageSeqs: request.messages.map((m) => m.seq),
     };
   }
 }
 
-interface SessionTitleService {
-  register(provider: SessionTitleProvider): () => Promise<void>;
-}
-
-export function apply(ctx: Context & { sessionTitle: SessionTitleService }, config: Config): void {
+export function apply(ctx: Context, config: Config): void {
   const provider = new SessionTitlePatternProvider(config);
-  ctx.effect(() => {
-    const unregister = ctx.sessionTitle.register(provider);
-    return unregister;
-  });
-}
+  const logger = ctx.logger(name);
 
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    sessionTitle: SessionTitleService;
+  // SessionTitleService.register() 是全局单例，重复注册直接抛。
+  // 正常情况下我们的 bundle patch 会禁用 dsh-base 的 session-title-llm，
+  // 但当用户把本包排在 dsh-base 之前、或另有插件抢先注册时仍会冲突。
+  // 这里绝不能让异常冒泡：apply() 抛错会让插件 fiber 失败，进而拖垮启动。
+  let dispose: () => Promise<void>;
+  try {
+    dispose = ctx.sessionTitle.register(provider);
+  } catch (error) {
+    logger.warn(
+      '注册标题 provider 失败，会话标题将回退到内置规则。' +
+        '多半是另一个 provider（如 dsh-base 的 session-title-llm）已抢先注册，' +
+        `而 SessionTitleService 全局只允许一个：${String(error)}`,
+    );
+    return;
   }
+
+  ctx.effect(() => dispose);
 }

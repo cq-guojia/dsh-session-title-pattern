@@ -2,19 +2,20 @@ import z from "@deepseek-ai/schemastery";
 import { SessionTitleProvider, SessionTitleProviderId, SessionTitleProviderRequest, SessionTitleProviderResult } from "@deepseek-ai/dsh-session-title";
 import { Context } from "@deepseek-ai/cordis";
 //#region src/host/index.d.ts
+export declare const name = "dsh-session-title-pattern";
 export declare const inject: readonly ["sessionTitle"];
-export declare const Config: z<Schemastery.ObjectS<{
-  /** Title separator, defaults to `|`. */
+export interface Config {
+  /** 标题各段之间的分隔符。 */
   separator: string;
-  /** Maximum total title length in UTF-8 bytes. */
+  /**
+   * 标题总长度上限（UTF-8 字节）。
+   *
+   * 必须 <= `session-title` 行的 `maxTitleBytes`（dsh-base 默认 80），
+   * 否则服务在写入前会二次截断，超出部分被静默丢弃。
+   */
   maxBytes: number;
-}>, Schemastery.ObjectT<{
-  /** Title separator, defaults to `|`. */
-  separator: string;
-  /** Maximum total title length in UTF-8 bytes. */
-  maxBytes: number;
-}>>;
-export type Config = z.infer<typeof Config>;
+}
+export declare const Config: z<Config>;
 export declare class SessionTitlePatternProvider implements SessionTitleProvider {
   readonly id: SessionTitleProviderId;
   readonly automatic: "first-prompt";
@@ -22,16 +23,6 @@ export declare class SessionTitlePatternProvider implements SessionTitleProvider
   constructor(config: Config);
   generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>;
 }
-interface SessionTitleService {
-  register(provider: SessionTitleProvider): () => Promise<void>;
-}
-export declare function apply(ctx: Context & {
-  sessionTitle: SessionTitleService;
-}, config: Config): void;
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    sessionTitle: SessionTitleService;
-  }
-}
+export declare function apply(ctx: Context, config: Config): void;
 //#endregion
 //# sourceMappingURL=index.d.mts.map

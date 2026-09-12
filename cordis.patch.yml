@@ -1,7 +1,19 @@
 # dsh-session-title-pattern: deterministic YYMMDD|类型|主题 title provider
 
+# SessionTitleService.register() 全局只允许一个 provider，重复注册直接抛
+# "session-title provider ... is already registered"。
+# dsh-base 默认启用了 session-title-llm
+# （@deepseek-ai/dsh-session-title-first-prompt-llm），不关掉本插件就会注册失败。
+#
+# bundle 层按 dsh.profile.bundles 顺序叠加，本层排在 dsh-base 之后，
+# 因此可以直接按 id 覆盖前层的行（官方 dsh-web-app 层就是这么关 tool-bash 的）。
+#
+# 想恢复 LLM 标题：在自己的 profile cordis.patch.yml（更靠后的层）里写
+#   - id: session-title-llm
+#     disabled: false
+- id: session-title-llm
+  disabled: true
+
 - insert:
     - id: session-title-pattern
       name: '@cq-guojia/dsh-session-title-pattern'
-      apply: host
-      config: {}
