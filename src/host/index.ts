@@ -254,8 +254,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
  * `refresh()` 是解除用户 pin 的唯一切入口 —— 用户手动重命名过的会话处于
  * pinned 状态，自动命名会停止调度，只有它能重新接管。
  *
- * 手动重算会重置滚动状态（`seenCount` 归零、摘要清空），让这次调用尽可能基于
- * 全部对话重来，而不是只发增量。
+ * 手动重算会重置滚动状态（`seenCount` 归零、摘要清空），让这次调用重新基于
+ * 「首条 + 最近一批」归纳；**主线保留** —— 那是模型逐轮积累的抗漂移锚，清了就找不回来。
  */
 function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>): void {
   ctx.effect(() =>
@@ -267,8 +267,11 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
       handler: async ({ agent, signal }) => {
         const state = states.get(agent.session.id);
         if (state !== undefined) {
-          // 手动重算 = 从头再来：主线也一并清空，让模型重新归纳。
-          state.mainLine = '';
+          // 清摘要与计数：让这次调用基于「首条 + 最近一批」重来。
+          // **主线刻意保留** —— 它是模型逐轮积累的判断，是抗漂移的锚。手动重算的输入
+          // 只有首条和最近一批（maxInputBytes 闸门从旧往新丢），主线若出现在会话中段，
+          // 清掉它就再也找不回来了。保留的代价为零（一行、几十字节），而且提示词
+          // 允许模型在会话目标真变了时改它，所以「重新归纳」的能力并没有丢。
           state.summary = '';
           state.seenCount = 0;
         }
