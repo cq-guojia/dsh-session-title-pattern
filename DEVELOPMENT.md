@@ -11,9 +11,48 @@
 
 ---
 
-## 当前版本：v0.4.2
+## 当前版本：v0.5.0
 
-### v0.4.2（本次）
+### v0.5.0（本次）
+
+设置卡片：样式全面对齐官方，模型列表改为严格筛选。
+
+**样式重做**。v0.4.x 的卡片样式是我自己编的，三处都不对（用户截图指出）：
+header 用透明背景所以永远显黑；body 浮在卡片外面所以断开；字段用「左标签 + 右输入 +
+右侧按钮」的表格布局所以很乱。
+
+现在逐条照抄官方 `@deepseek-ai/dsh-client-ui-settings-plugins` 里
+`PluginCard.module.css` 与 `fields.module.css` 的规则（新建 `src/client/settings-css.ts`）：
+
+- `.card` 收起态 `background:var(--dsw-alias-bg-layer-3)`（灰）；`.cardOpen` 展开切
+  `bg-layer-2`（深）—— 这就是「没展开是灰的、展开了才黑」
+- `.body{border-top:.5px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}`
+  —— 正文落在**同一张卡片内**，只隔一条细线
+- `.field{flex-direction:column;gap:6px;padding:12px 0}` + `.field+.field{border-top:…}`
+  —— **标签在上、控件整宽在下、hint 再下一行**，字段之间用细线分隔
+- 「恢复默认」是 label 行里的 12px 文字按钮；底部是右对齐的「放弃修改 / 保存」
+  （`.save` 实心、`.discard` 描边）
+- 保存成功后**自动收起**（官方 PluginCard 的行为）
+
+类名用我们自己的 `stp-` 前缀、规则照抄，**不直接借用官方的 hash 类名**
+（`YyYd_a_card` 这类由上游构建生成，改版即静默失效）。
+
+**模型列表严格筛选**。v0.4.2 把 `listProviders()`（适配器注册的**全部内置供应商**）
+直接列了出来，于是用户只配了一个 DeepSeek key，却看到一大堆用不了的模型。现在加两道闸：
+
+1. 路由必须**已注册**（active）；
+2. 该 provider 的 profile 要么在设置文档的**用户层**被写过，要么它引用的
+   `apiKeyEnv` 在**凭据域**里 `configured === true`。
+
+第 2 条与官方模型页 `providerUsable` 的口径一致，只是我们更严一档：官方对「profile
+未命名任何凭据」的路由直接放行（留给 Bedrock/Vertex 这类走自身凭据链的场景），
+而这里的目标是「我配了什么就出什么」，所以不放行。
+
+凭据域通过 `remote.credentials.describe(refs)` 读取，但**该命名空间的签名本地无法验证**
+（声明它的包只在部署侧组合），因此做结构化调用 + 形状解析 + 整体 try/catch：
+拿不到就回退成「只看用户层」，并在卡片上说明。这一条是本次唯一未经实机验证的部分。
+
+### v0.4.2
 
 provider / model 改成**只能选的下拉**，选项来自用户已经配好的模型。
 

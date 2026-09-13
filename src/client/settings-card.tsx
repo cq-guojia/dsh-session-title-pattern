@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSyncExternalStore } from 'react';
-import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Switch } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 // 仅为拿到 `settings.plugin.item` 槽位与 settingsScope 的类型声明。
@@ -31,12 +31,7 @@ export interface PluginConfig {
   maxBytes?: number;
 }
 
-/**
- * `llm` 远端命名空间里我们用到的方法。
- *
- * 结构化声明而不是引 dsh-llm 的 remote 类型入口：只用到两个方法，
- * 远端结果用 `{ ok, value? }` 形状判定即可。
- */
+/** `llm` 远端命名空间里我们用到的方法（结构化声明，不引它的类型入口）。 */
 export interface LlmDirectory {
   listProviders: () => Promise<{
     ok: boolean;
@@ -59,11 +54,28 @@ export interface LlmDirectory {
 export interface DescribeFace {
   ensure: () => Promise<void>;
   getSnapshot: () => {
-    view?: { namespaces: readonly { ns: string; value?: unknown }[] } | undefined;
+    view?: { namespaces: readonly SettingsNamespaceLike[] } | undefined;
   };
 }
 
-/** 一条可选路由，以及它已配置的模型。 */
+/** 设置镜像里一个命名空间视图——我们只关心 `ns` 与三层数据。 */
+interface SettingsNamespaceLike {
+  ns: string;
+  value?: unknown;
+  user?: unknown;
+}
+
+/**
+ * 凭据域读取面。
+ *
+ * 签名不在本地可验证范围内（该包只在部署侧组合），所以按结构化声明调用：
+ * 拿不到、形状对不上、调用抛错，一律回退到「用户层配过没有」的判定。
+ */
+export interface CredentialsFace {
+  describe: (refs: readonly string[]) => Promise<unknown>;
+}
+
+/** 一个可选路由，以及它已配置的模型。 */
 interface DirectoryRoute {
   provider: string;
   displayName: string;
@@ -75,105 +87,8 @@ type DirectoryState =
   | { status: 'unavailable'; reason: string }
   | { status: 'ready'; routes: readonly DirectoryRoute[] };
 
-/**
- * 从某个 provider 的 profile 里读出 `models` 数组。
- *
- * profile 的形状由各适配器自己的 schema 决定，所以全程做结构判定：
- * 任何一步对不上就返回空数组，调用方据此把该行退回文本输入。
- */
-function readModels(section: unknown, path: readonly string[]): { id: string; name?: string }[] {
-  let node: unknown = section;
-  for (const key of path) {
-    if (node === null || typeof node !== 'object') return [];
-    node = (node as Record<string, unknown>)[key];
-  }
-  if (node === null || typeof node !== 'object') return [];
-  const models = (node as Record<string, unknown>).models;
-  if (!Array.isArray(models)) return [];
-
-  const result: { id: string; name?: string }[] = [];
-  for (const entry of models) {
-    if (entry === null || typeof entry !== 'object') continue;
-    const record = entry as Record<string, unknown>;
-    if (typeof record.id !== 'string' || record.id.length === 0) continue;
-    result.push(typeof record.name === 'string' ? { id: record.id, name: record.name } : { id: record.id });
-  }
-  return result;
-}
-
-/**
- * 组装「供应商 → 已配置模型」目录。
- *
- * 两个来源：`listProviders`（当前已注册的路由）与 `listConfigurableProviders`
- * （已声明可配置的路由，带 settingsNs 地址）。模型不在这些接口里，而在每个
- * provider 自己的设置 section 里，所以还要读一次设置镜像。
- */
-async function loadDirectory(llm: LlmDirectory, describe: DescribeFace): Promise<DirectoryState> {
-  try {
-    const [registered, declared] = await Promise.all([llm.listProviders(), llm.listConfigurableProviders()]);
-    if (registered.ok !== true && declared.ok !== true) {
-      return { status: 'unavailable', reason: '无法读取模型供应商目录' };
-    }
-    await describe.ensure();
-    const views = describe.getSnapshot().view?.namespaces ?? [];
-
-    const addresses = new Map<string, { displayName: string; settingsNs?: string; settingsPath: readonly string[] }>();
-    // 先放已声明的（带设置地址），再补上已注册的（没有地址，拿不到模型列表）。
-    for (const entry of declared.ok ? (declared.value ?? []) : []) {
-      addresses.set(entry.provider, {
-        displayName: entry.displayName,
-        settingsNs: entry.settingsNs,
-        settingsPath: entry.settingsPath ?? [],
-      });
-    }
-    for (const entry of registered.ok ? (registered.value ?? []) : []) {
-      if (!addresses.has(entry.id)) addresses.set(entry.id, { displayName: entry.name, settingsPath: [] });
-    }
-
-    const routes: DirectoryRoute[] = [];
-    for (const [provider, address] of addresses) {
-      const view =
-        address.settingsNs === undefined
-          ? undefined
-          : views.find((candidate) => candidate.ns === address.settingsNs);
-      routes.push({
-        provider,
-        displayName: address.displayName,
-        models: readModels(view?.value, address.settingsPath),
-      });
-    }
-    routes.sort((left, right) => left.displayName.localeCompare(right.displayName));
-    return { status: 'ready', routes };
-  } catch (error) {
-    return { status: 'unavailable', reason: String(error) };
-  }
-}
-
 /** 一个字段保存时要做的事。`clear` 表示让它重新继承下层（我们走 `unset`）。 */
 type FieldWrite = { kind: 'set'; value: unknown } | { kind: 'clear' };
-
-/** 卡片标题行的样式：整行是一个按钮（与官方 `PluginCard` 的头部一致）。 */
-const headerStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  width: '100%',
-  padding: '10px 12px',
-  textAlign: 'left',
-  cursor: 'pointer',
-  background: '0 0',
-  border: '1px solid var(--dsw-alias-border-l3)',
-  borderRadius: 12,
-  color: 'var(--dsw-alias-label-primary)',
-} as const;
-
-const dirtyBadgeStyle = {
-  fontSize: 11,
-  padding: '0 6px',
-  borderRadius: 6,
-  color: 'var(--dsw-alias-state-business-primary)',
-  background: 'var(--dsw-alias-interactive-bg-hover)',
-} as const;
 
 /**
  * 一个字段如何在「存储值」与「草稿文本」之间转换。
@@ -241,7 +156,7 @@ const FIELDS: readonly FieldDesc[] = [
   {
     field: 'provider',
     label: '服务商 provider',
-    hint: '与 model 必须成对；两项都留空则跟随会话主模型',
+    hint: '只列出已配置且可用的供应商；留空则跟随会话主模型',
     spec: textField,
     group: 'model',
   },
@@ -263,40 +178,182 @@ const COLLAPSIBLE_GROUPS: readonly { key: GroupKey; label: string }[] = [
   { key: 'format', label: '标题格式' },
 ];
 
-const labelWidth = 130;
+const ChevronIcon = (
+  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path
+      d="M4 6.5 8 10.5 12 6.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
-const labelStyle = {
-  flex: `0 0 ${labelWidth}px`,
-  fontSize: 13,
-  color: 'var(--dsw-alias-label-secondary)',
-} as const;
+function hasKey(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
 
-const hintStyle = {
-  fontSize: 11,
-  lineHeight: '16px',
-  color: 'var(--dsw-alias-label-tertiary)',
-  marginTop: 2,
-} as const;
+/** 沿路径走进一层层的对象；任何一步对不上就返回 undefined。 */
+function walk(node: unknown, path: readonly string[]): unknown {
+  let current = node;
+  for (const key of path) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
 
-const overriddenBadgeStyle = {
-  marginLeft: 6,
-  fontSize: 11,
-  color: 'var(--dsw-alias-state-business-primary)',
-} as const;
+/** 从某个 provider 的 profile 里读出 `models` 数组。 */
+function readModels(section: unknown, path: readonly string[]): { id: string; name?: string }[] {
+  const profile = walk(section, path);
+  if (profile === null || typeof profile !== 'object') return [];
+  const models = (profile as Record<string, unknown>).models;
+  if (!Array.isArray(models)) return [];
 
-/** provider / model 下拉的样式。没有 Select 基础组件，用原生 select 配上主题变量。 */
-const selectStyle = {
-  flex: 1,
-  minWidth: 0,
-  height: 32,
-  padding: '0 8px',
-  fontSize: 13,
-  color: 'var(--dsw-alias-label-primary)',
-  background: 'var(--dsw-specific-input-major, var(--dsw-alias-bg-base))',
-  border: '1px solid var(--dsw-alias-border-l3)',
-  borderRadius: 8,
-  cursor: 'pointer',
-} as const;
+  const result: { id: string; name?: string }[] = [];
+  for (const entry of models) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== 'string' || record.id.length === 0) continue;
+    result.push(typeof record.name === 'string' ? { id: record.id, name: record.name } : { id: record.id });
+  }
+  return result;
+}
+
+/** profile 里指向凭据的引用名（`apiKeyEnv`）。 */
+function readApiKeyRef(section: unknown, path: readonly string[]): string | undefined {
+  const profile = walk(section, path);
+  if (profile === null || typeof profile !== 'object') return undefined;
+  const ref = (profile as Record<string, unknown>).apiKeyEnv;
+  return typeof ref === 'string' && ref.length > 0 ? ref : undefined;
+}
+
+/**
+ * 解析凭据域的回答，尽力而为。
+ *
+ * 期望形状是 `{ ok: true, value: … }`，`value` 可能是 `[{ ref, configured }]`
+ * 或 `{ [ref]: { configured } }`。形状不认就返回 undefined，让调用方回退。
+ */
+function parseConfiguredRefs(raw: unknown): ReadonlySet<string> | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const envelope = raw as { ok?: unknown; value?: unknown };
+  if (envelope.ok !== true) return undefined;
+  const value = envelope.value;
+  const configured = new Set<string>();
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (entry === null || typeof entry !== 'object') continue;
+      const record = entry as Record<string, unknown>;
+      const ref =
+        typeof record.ref === 'string' ? record.ref : typeof record.name === 'string' ? record.name : undefined;
+      if (ref !== undefined && record.configured === true) configured.add(ref);
+    }
+    return configured;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [ref, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry !== null && typeof entry === 'object' && (entry as Record<string, unknown>).configured === true) {
+        configured.add(ref);
+      }
+    }
+    return configured;
+  }
+  return undefined;
+}
+
+/**
+ * 组装「供应商 → 已配置模型」目录，**只保留用户真正配好的供应商**。
+ *
+ * 这是这次最关键的一处：`listProviders()` 返回的是适配器注册的**全部内置供应商**，
+ * 直接罗列会出现一大堆用户根本没配、用不了的模型。所以再加两道闸：
+ *
+ *   1. 该路由必须**已注册**（active）；
+ *   2. 该 provider 的 profile 要么在**用户层**被写过、要么它引用的**凭据已配置**。
+ *
+ * 第 2 条与官方模型页 `providerUsable` 的口径一致（我们更严一档：官方对「profile 未命名
+ * 任何凭据」的路由直接放行，那是给 Bedrock/Vertex 这类走自身凭据链的场景留的口子，
+ * 而这里的目的是「我配了什么就出什么」，所以不放行）。
+ *
+ * 凭据域拿不到时只用用户层判定，并在界面上说明。
+ */
+async function loadDirectory(
+  llm: LlmDirectory,
+  describe: DescribeFace,
+  getCredentials: () => CredentialsFace | undefined,
+): Promise<DirectoryState> {
+  try {
+    const [registered, declared] = await Promise.all([llm.listProviders(), llm.listConfigurableProviders()]);
+    if (registered.ok !== true) return { status: 'unavailable', reason: '无法读取已注册的模型供应商' };
+
+    await describe.ensure();
+    const views = describe.getSnapshot().view?.namespaces ?? [];
+    const findView = (ns: string): SettingsNamespaceLike | undefined =>
+      views.find((candidate) => candidate.ns === ns);
+
+    const activeIds = new Set((registered.value ?? []).map((entry) => entry.id));
+    const addresses = new Map<
+      string,
+      { displayName: string; settingsNs?: string; settingsPath: readonly string[] }
+    >();
+    for (const entry of declared.ok ? (declared.value ?? []) : []) {
+      addresses.set(entry.provider, {
+        displayName: entry.displayName,
+        settingsNs: entry.settingsNs,
+        settingsPath: entry.settingsPath ?? [],
+      });
+    }
+    for (const entry of registered.value ?? []) {
+      if (!addresses.has(entry.id)) addresses.set(entry.id, { displayName: entry.name, settingsPath: [] });
+    }
+
+    // 先尽量读一次凭据域：只有它能把「key 存在环境变量里、设置文档没写过」也算进来。
+    const refs: string[] = [];
+    const profileOf = new Map<string, { section: unknown; path: readonly string[] }>();
+    for (const [provider, address] of addresses) {
+      if (address.settingsNs === undefined) continue;
+      const view = findView(address.settingsNs);
+      profileOf.set(provider, { section: view?.value, path: address.settingsPath });
+      const ref = readApiKeyRef(view?.value, address.settingsPath);
+      if (ref !== undefined) refs.push(ref);
+    }
+    let configuredRefs: ReadonlySet<string> | undefined;
+    const credentials = getCredentials();
+    if (credentials !== undefined && refs.length > 0) {
+      try {
+        configuredRefs = parseConfiguredRefs(await credentials.describe([...new Set(refs)]));
+      } catch {
+        configuredRefs = undefined;
+      }
+    }
+
+    const routes: DirectoryRoute[] = [];
+    for (const [provider, address] of addresses) {
+      if (!activeIds.has(provider)) continue;
+
+      const view = address.settingsNs === undefined ? undefined : findView(address.settingsNs);
+      // 用户层写没写过这个 provider 的 profile。
+      const userConfigured = walk(view?.user, address.settingsPath) !== undefined;
+      const ref = readApiKeyRef(view?.value, address.settingsPath);
+      const credentialConfigured = ref !== undefined && configuredRefs?.has(ref) === true;
+
+      if (!userConfigured && !credentialConfigured) continue;
+
+      const profile = profileOf.get(provider);
+      routes.push({
+        provider,
+        displayName: address.displayName,
+        models: readModels(profile?.section ?? view?.value, address.settingsPath),
+      });
+    }
+    routes.sort((left, right) => left.displayName.localeCompare(right.displayName));
+    return { status: 'ready', routes };
+  } catch (error) {
+    return { status: 'unavailable', reason: String(error) };
+  }
+}
 
 type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
   /** 由注册项的 inject 工厂注入：绑定到本插件命名空间的设置作用域。 */
@@ -305,28 +362,39 @@ type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
   describe: DescribeFace;
   /** 延迟注入的 llm 远端；拿不到就让 provider/model 退回文本输入。 */
   getLlm: () => LlmDirectory | undefined;
+  /** 延迟注入的凭据域；拿不到就只用用户层判定「配没配」。 */
+  getCredentials: () => CredentialsFace | undefined;
 };
-
-function hasKey(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
 
 /**
  * 本插件的设置卡片。
  *
- * 用「暂存 + 保存」而不是改一下就提交：每一次写入都是可持久化的、带修订号栅栏的文档变更，
- * 边改边写会把一次输入变成用户没要求、也无法预览的写入（官方 `CardForm` 的同一取舍）。
+ * 结构、类名与样式对齐官方 `PluginCard` + `fields`（见 `settings-css.ts`）：
+ * 收起时是灰底卡片，展开后正文落在同一张卡片内、只隔一条细线；字段一律
+ * 「标签在上 / 控件整宽在下 / 说明再下一行」，保存与放弃在右下角。
  *
- * 自己渲染表单是因为客户端纯度闸门禁止复用设置区块自带的卡片外壳，
- * 只能从平台模块（ui-primitives）取控件。
+ * 用「暂存 + 保存」而不是改一下就提交：每次写入都是可持久化的、带修订号栅栏的文档变更，
+ * 边改边写会把一次输入变成用户没要求、也无法预览的写入（官方 `CardForm` 的同一取舍）。
  */
-export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): React.JSX.Element | null {
+export function SettingsCard({
+  scope,
+  describe,
+  getLlm,
+  getCredentials,
+}: SettingsCardProps): React.JSX.Element | null {
   const subscribe = useCallback((onChange: () => void) => scope.subscribe(onChange), [scope]);
   // getSnapshot 必须返回稳定引用：作用域的实现在值不变时保证同一引用。
   const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
+  // 默认折叠。官方卡片同样默认收起，且**保存成功后自动收起**。
+  const [expanded, setExpanded] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Partial<Record<GroupKey, boolean>>>({});
   const [directory, setDirectory] = useState<DirectoryState>({ status: 'loading' });
+
   useEffect(() => {
     const llm = getLlm();
     if (llm === undefined) {
@@ -334,26 +402,17 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
       return undefined;
     }
     let alive = true;
-    void loadDirectory(llm, describe).then((next) => {
+    void loadDirectory(llm, describe, getCredentials).then((next) => {
       if (alive) setDirectory(next);
     });
     return () => {
       alive = false;
     };
-  }, [describe, getLlm]);
-
-  // 默认折叠。官方的插件卡片也是收起状态，点标题行才展开详细设置。
-  const [expanded, setExpanded] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Partial<Record<GroupKey, boolean>>>({});
+  }, [describe, getCredentials, getLlm]);
 
   const section = (snapshot.value ?? {}) as PluginConfig;
   const user = (snapshot.user ?? {}) as Record<string, unknown>;
   const writable = snapshot.writable && !busy;
-
-  // 命名空间没被 host 服务（或还在加载）时整张卡片不渲染，不给用户看半成品。
   const ready = snapshot.status === 'ready';
 
   const draftText = (desc: FieldDesc): string =>
@@ -385,6 +444,30 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
     setDrafts((previous) => ({ ...previous, ...patch }));
   };
 
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      for (const desc of FIELDS) {
+        const draft = drafts[desc.field];
+        if (draft === undefined) continue;
+        const write = desc.spec.parse(draft);
+        // 无效草稿不写：`invalid` 已经禁用了保存按钮，这里只是兜底。
+        if (write === undefined) continue;
+        if (write.kind === 'clear') await scope.unset(desc.field);
+        else await scope.set(desc.field, write.value);
+      }
+      setDrafts({});
+      // 与官方一致：保存成功后自动收起。
+      setExpanded(false);
+    } catch {
+      // 草稿保留，用户可以改完再存一次，而不是重打一遍。
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /**
    * provider / model 的控件。
    *
@@ -393,6 +476,7 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
    */
   const renderControl = (desc: FieldDesc): React.JSX.Element => {
     const value = draftText(desc);
+    const invalidField = isInvalid(desc);
     const disabled = !writable;
 
     if (directory.status === 'ready') {
@@ -400,9 +484,9 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
         const known = directory.routes.some((route) => route.provider === value);
         return (
           <select
+            className="stp-input"
             value={value}
             disabled={disabled}
-            style={selectStyle}
             onChange={(event) => {
               // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
               stageMany({ provider: event.target.value, model: '' });
@@ -420,14 +504,13 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
       }
       if (desc.field === 'model') {
         const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
-        const models =
-          directory.routes.find((route) => route.provider === providerValue)?.models ?? [];
+        const models = directory.routes.find((route) => route.provider === providerValue)?.models ?? [];
         const known = models.some((model) => model.id === value);
         return (
           <select
+            className="stp-input"
             value={value}
             disabled={disabled || providerValue === ''}
-            style={selectStyle}
             onChange={(event) => stage(desc.field, event.target.value)}
           >
             <option value="">
@@ -445,120 +528,79 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
     }
 
     return (
-      <Input
+      <input
+        className={invalidField ? 'stp-input stp-inputInvalid' : 'stp-input'}
         value={value}
         disabled={disabled}
-        aria-invalid={isInvalid(desc) || undefined}
         onChange={(event) => stage(desc.field, event.target.value)}
       />
     );
   };
 
-  const save = async (): Promise<void> => {
-    setBusy(true);
-    setFailed(false);
-    try {
-      for (const desc of FIELDS) {
-        const draft = drafts[desc.field];
-        if (draft === undefined) continue;
-        const write = desc.spec.parse(draft);
-        // 无效草稿不写：`invalid` 已经禁用了保存按钮，这里只是兜底。
-        if (write === undefined) continue;
-        if (write.kind === 'clear') await scope.unset(desc.field);
-        else await scope.set(desc.field, write.value);
-      }
-      setDrafts({});
-    } catch {
-      // 草稿保留，用户可以改完再存一次，而不是重打一遍。
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const renderRow = (desc: FieldDesc): React.JSX.Element => {
+  const renderField = (desc: FieldDesc): React.JSX.Element => {
     const overridden = isOverridden(desc);
     const fieldInvalid = isInvalid(desc);
     return (
-      <div key={desc.field} style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={labelStyle}>
-            {desc.label}
-            {overridden ? <span style={overriddenBadgeStyle}>已覆盖</span> : null}
+      <div key={desc.field} className="stp-field">
+        <div className="stp-head">
+          <span className="stp-label">{desc.label}</span>
+          <span className="stp-badges">
+            {overridden ? <span className="stp-overridden">已覆盖</span> : null}
+            <button
+              type="button"
+              className="stp-reset"
+              disabled={!writable || !overridden}
+              onClick={() => stage(desc.field, '')}
+            >
+              恢复默认
+            </button>
           </span>
-          {renderControl(desc)}
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!writable || !overridden}
-            title="清除本字段，恢复继承默认值（保存后生效）"
-            onClick={() => stage(desc.field, '')}
-          >
-            恢复默认
-          </Button>
         </div>
-        {desc.hint === undefined ? null : <div style={hintStyle}>{desc.hint}</div>}
-        {desc.field === 'provider' && directory.status === 'unavailable' ? (
-          <div style={hintStyle}>
-            {`未能读取已配置的模型列表（${directory.reason}），这两行已退回手动输入`}
+        {/* 模式用开关，其余用输入框或下拉。 */}
+        {desc.field === 'mode' ? (
+          <div className="stp-toggleRow">
+            <Switch
+              checked={draftText(desc) !== 'rules'}
+              disabled={!writable}
+              label={desc.label}
+              onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
+            />
+            <span className="stp-toggleText">
+              {draftText(desc) !== 'rules' ? '模型总结' : '关键词规则'}
+            </span>
           </div>
+        ) : (
+          renderControl(desc)
+        )}
+        {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
+        {fieldInvalid ? <p className="stp-invalid">这里需要一个整数</p> : null}
+        {desc.field === 'provider' && directory.status === 'unavailable' ? (
+          <p className="stp-hint">
+            {`未能读取已配置的模型列表（${directory.reason}），这两行已退回手动输入`}
+          </p>
         ) : null}
-        {fieldInvalid ? <div style={{ ...hintStyle, color: 'var(--dsw-alias-label-error, #d9534f)' }}>这里需要一个整数</div> : null}
-      </div>
-    );
-  };
-
-  const renderModeRow = (desc: FieldDesc): React.JSX.Element => {
-    const overridden = isOverridden(desc);
-    return (
-      <div key={desc.field} style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Switch 的 label 只用于无障碍，不会渲染出可见文字，所以这里补一个字段名。 */}
-          <span style={labelStyle}>
-            {desc.label}
-            {overridden ? <span style={overriddenBadgeStyle}>已覆盖</span> : null}
-          </span>
-          <Switch
-            checked={draftText(desc) !== 'rules'}
-            disabled={!writable}
-            label={desc.label}
-            onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
-          />
-          <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-            {draftText(desc) !== 'rules' ? '模型总结' : '关键词规则'}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!writable || !overridden}
-            title="清除本字段，恢复继承默认值（保存后生效）"
-            onClick={() => stage(desc.field, '')}
-          >
-            恢复默认
-          </Button>
-        </div>
-        {desc.hint === undefined ? null : <div style={hintStyle}>{desc.hint}</div>}
       </div>
     );
   };
 
   const renderGroup = (key: GroupKey): React.JSX.Element => {
-    const expanded = openGroups[key] === true;
+    const isOpen = openGroups[key] === true;
     const group = COLLAPSIBLE_GROUPS.find((item) => item.key === key);
     return (
-      <div key={key} style={{ marginTop: 6 }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setOpenGroups((previous) => ({ ...previous, [key]: !expanded }))}
-        >
-          {`${expanded ? '▾' : '▸'} ${group?.label ?? key}`}
-        </Button>
-        {expanded ? (
-          <div style={{ paddingLeft: 4, marginTop: 8 }}>
-            {FIELDS.filter((desc) => desc.group === key).map(renderRow)}
-          </div>
-        ) : null}
+      <div key={key}>
+        <div className="stp-head" style={{ paddingTop: 12 }}>
+          <span className="stp-label">{group?.label ?? key}</span>
+          <span className="stp-badges">
+            <button
+              type="button"
+              className="stp-reset"
+              onClick={() => setOpenGroups((previous) => ({ ...previous, [key]: !isOpen }))}
+            >
+              {isOpen ? '收起' : '展开'}
+            </button>
+          </span>
+        </div>
+        {isOpen ? <div>{FIELDS.filter((desc) => desc.group === key).map(renderField)}</div> : null}
       </div>
     );
   };
@@ -566,68 +608,54 @@ export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): Re
   if (!ready) return null;
 
   return (
-    <div>
+    <li className={expanded ? 'stp-card stp-cardOpen' : 'stp-card'}>
       <button
         type="button"
+        className="stp-header"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        style={headerStyle}
       >
-        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, textAlign: 'left' }}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' }}>
-            会话标题
-          </span>
-          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }}>
-            用模型总结会话标题的类型与主题，也可以退回关键词规则。
-          </span>
+        <span className="stp-headText">
+          <span className="stp-name">会话标题</span>
+          <span className="stp-description">用模型总结会话标题的类型与主题，也可以退回关键词规则。</span>
         </span>
         {/* 折叠不影响暂存的改动，所以标题行要标出「有未保存的改动」。 */}
-        {dirty ? <span style={dirtyBadgeStyle}>未保存</span> : null}
-        <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-          {expanded ? '▲' : '▼'}
-        </span>
+        {dirty ? <span className="stp-pending">未保存</span> : null}
+        <span className={expanded ? 'stp-chevron stp-chevronOpen' : 'stp-chevron'}>{ChevronIcon}</span>
       </button>
-      <div style={{ display: expanded ? 'block' : 'none', marginTop: 10 }}>
-      {FIELDS.filter((desc) => desc.group === 'top').map((desc) =>
-        desc.field === 'mode' ? renderModeRow(desc) : renderRow(desc),
-      )}
-      {COLLAPSIBLE_GROUPS.map((group) => renderGroup(group.key))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={!writable || !dirty || invalid}
-          onClick={() => void save()}
-        >
-          保存
-        </Button>
-        <Button variant="ghost" size="sm" disabled={busy || !dirty} onClick={() => { setFailed(false); setDrafts({}); }}>
-          放弃
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!writable}
-          title="把所有字段标记为恢复默认（保存后生效）"
-          onClick={() => {
-            setFailed(false);
-            setDrafts(Object.fromEntries(FIELDS.map((desc) => [desc.field, ''])));
-          }}
-        >
-          全部恢复默认
-        </Button>
-        {failed ? (
-          <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-error, #d9534f)' }}>
-            保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）
-          </span>
-        ) : null}
-        {snapshot.writable ? null : (
-          <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
-            当前连接为进程内模式，配置不会写入 Host 文档
-          </span>
-        )}
-      </div>
-      </div>
-    </div>
+      {expanded ? (
+        <div className="stp-body">
+          {FIELDS.filter((desc) => desc.group === 'top').map(renderField)}
+          {COLLAPSIBLE_GROUPS.map((group) => renderGroup(group.key))}
+          <div className="stp-footer">
+            {failed ? (
+              <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>
+            ) : null}
+            {snapshot.writable ? null : (
+              <p className="stp-failed">当前连接为进程内模式，配置不会写入 Host 文档</p>
+            )}
+            <button
+              type="button"
+              className="stp-discard"
+              disabled={busy || !dirty}
+              onClick={() => {
+                setFailed(false);
+                setDrafts({});
+              }}
+            >
+              放弃修改
+            </button>
+            <button
+              type="button"
+              className="stp-save"
+              disabled={!writable || !dirty || invalid}
+              onClick={() => void save()}
+            >
+              保存
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </li>
   );
 }

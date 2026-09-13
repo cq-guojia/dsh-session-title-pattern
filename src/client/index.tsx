@@ -15,7 +15,8 @@ import { Button, IconEditOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-p
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 
 import { SETTINGS_NS, SettingsCard } from './settings-card';
-import type { LlmDirectory, PluginConfig } from './settings-card';
+import type { CredentialsFace, LlmDirectory, PluginConfig } from './settings-card';
+import { SETTINGS_CSS, SETTINGS_STYLE_ID } from './settings-css';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -126,15 +127,23 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
  * 上游若重命名该类名，本规则会**静默失效**（不报错、不崩溃，只是标题又变短）。
  * 排查方法：DevTools 选中标题元素，看它 class 属性里是否还有 `_crumbCurrent`。
  */
-function installCrumbWidth(): void {
+/** 按 id 幂等地往页面注入一段样式。重复激活不会叠加。 */
+function injectStyle(id: string, css: string): void {
   if (typeof document === 'undefined') return;
-  // 幂等：插件重复激活时不叠加第二条规则。
-  if (document.getElementById(CRUMB_STYLE_ID) !== null) return;
-
+  if (document.getElementById(id) !== null) return;
   const style = document.createElement('style');
-  style.id = CRUMB_STYLE_ID;
-  style.textContent = `[class*="_crumbCurrent"]{max-width:${CRUMB_MAX_WIDTH} !important;}`;
+  style.id = id;
+  style.textContent = css;
   document.head.append(style);
+}
+
+function removeStyle(id: string): void {
+  if (typeof document === 'undefined') return;
+  document.getElementById(id)?.remove();
+}
+
+function installCrumbWidth(): void {
+  injectStyle(CRUMB_STYLE_ID, `[class*="_crumbCurrent"]{max-width:${CRUMB_MAX_WIDTH} !important;}`);
 }
 
 export function apply(ctx: Context): void {
@@ -142,8 +151,11 @@ export function apply(ctx: Context): void {
   // 放在最前面是为了尽早注入，避免标题先按 220px 渲染再跳变。
   ctx.effect(() => {
     installCrumbWidth();
+    // 设置卡片的样式：逐条照抄官方卡片与字段的规则（见 settings-css.ts）。
+    injectStyle(SETTINGS_STYLE_ID, SETTINGS_CSS);
     return () => {
-      if (typeof document !== 'undefined') document.getElementById(CRUMB_STYLE_ID)?.remove();
+      removeStyle(CRUMB_STYLE_ID);
+      removeStyle(SETTINGS_STYLE_ID);
     };
   });
 
@@ -190,6 +202,13 @@ export function apply(ctx: Context): void {
     llmDirectory = sub.remote.llm as unknown as LlmDirectory;
   });
 
+  // 凭据域：用来判断「这个供应商的 key 到底配没配」。命名空间由部署侧组合提供，
+  // 拿不到就只是退化成「只看设置文档的用户层」，不影响其它功能。
+  let credentialsFace: CredentialsFace | undefined;
+  ctx.inject(['remote', 'remote.credentials'], (sub) => {
+    credentialsFace = (sub.remote as unknown as Record<string, CredentialsFace | undefined>).credentials;
+  });
+
   // 设置卡片：host 半用同一个命名空间注册 settings section，这里按命名空间注册卡片，
   // 设置页的「插件」标签页会遍历已服务的命名空间并自动配对渲染。
   ctx.inject(['slots', 'settingsScope'], (sub) => {
@@ -201,7 +220,12 @@ export function apply(ctx: Context): void {
           name: 'settings.plugin.item',
           // keyed 槽位用 key 声明本条贡献给哪个命名空间（list 才是 id/order）。
           key: SETTINGS_NS,
-          inject: () => ({ scope, describe, getLlm: () => llmDirectory }),
+          inject: () => ({
+            scope,
+            describe,
+            getLlm: () => llmDirectory,
+            getCredentials: () => credentialsFace,
+          }),
         },
         SettingsCard,
       ),
