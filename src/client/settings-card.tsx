@@ -482,11 +482,15 @@ export function SettingsCard({
   /**
    * 「厂家 + 具体模型」这一对的当前取值。
    *
-   * 规则：**具体模型不允许留空，必须是列表里的某一个**。所以这里把「已保存/草稿里的
-   * 模型值」解析成一个**可用值**：
-   * - 厂家已选且该值就在这家的模型列表里 → 用它
-   * - 不在列表里（比如刚换了厂家）→ 落到**第一个**
+   * - 厂家：草稿优先，否则取已保存的值
+   * - 具体模型：草稿优先；**没有值时**自动落到该厂家的第一个模型
+   *   （对应用户要求的「必须选一个、不给留空」）；**已存过的值一律原样保留**
    * - 目录读不到（`pairModels === undefined`）→ 原样保留，退回手动输入
+   *
+   * 注意这里**只算不写**：解析结果不回写草稿。曾经把「自动落到第一个」写进草稿，
+   * 后果是卡片一打开就挂着「未保存」—— 草稿值与已存值确实不同，而用户什么都没动过，
+   * 之后改任何字段、甚至改回原值，那个标记都不会消失。
+   * 那一步挪到了 `save()` 里：保存时按解析值写，界面上看到的仍然等于会存进去的。
    */
   const pairProvider = providerDesc === undefined ? '' : draftText(providerDesc);
   const pairModels =
@@ -494,33 +498,11 @@ export function SettingsCard({
       ? (directory.routes.find((route) => route.provider === pairProvider)?.models ?? [])
       : undefined;
   const pairModel = modelDesc === undefined ? '' : draftText(modelDesc);
-  /**
-   * 具体模型的实际取值。
-   *
-   * **已经存过的模型原样保留**（哪怕当前列表里没有它）——绝不静默替换用户选过的值，
-   * 否则卡片一打开就会挂着「未保存」，而用户什么都没动过。只在**值为空**时才自动落到第一个。
-   */
   const pairModelResolved =
     pairModels === undefined || pairModel !== '' ? pairModel : (pairModels[0]?.id ?? '');
   /** 厂家已选、这家没有任何模型、而且手上也没有存过的值：无从选起，保存也过不去。 */
   const pairBlocked =
     pairModels !== undefined && pairProvider !== '' && pairModels.length === 0 && pairModel === '';
-
-  useEffect(() => {
-    // 只在「必须补的值」上兜底，绝不改写已经存过的值：
-    // - 厂家为空（跟随对话模型）时具体模型要一起清掉，否则两端不成对、host 会拒绝写入
-    // - 厂家已选但**模型为空**时，补上列表里的第一个（用户要求「必须选一个、不给留空」）
-    //
-    // 刻意**不**处理「已存的值不在当前列表里」——那种情况顺手换成第一个，会造成
-    // 「打开卡片什么都没动却显示未保存」。那种值原样显示（下面给一个「不在已配置列表」
-    // 的选项），让用户自己决定换不换。
-    if (pairProvider === '') {
-      if (pairModel !== '') setDrafts((previous) => ({ ...previous, provider: '', model: '' }));
-      return;
-    }
-    if (pairModel !== '' || pairModelResolved === '') return;
-    setDrafts((previous) => ({ ...previous, provider: pairProvider, model: pairModelResolved }));
-  }, [pairProvider, pairModel, pairModelResolved]);
 
   /**
    * 是否「已覆盖」。
@@ -559,7 +541,9 @@ export function SettingsCard({
     if (write === undefined) return true;
     return !sameValue(write.kind === 'clear' ? undefined : write.value, section[desc.field]);
   };
-  const dirty = FIELDS.some(draftDiffers);
+  /** 与已存值不同的项。只可能是用户自己编辑过的字段 —— 不会再被自动补的值污染。 */
+  const differing = FIELDS.filter(draftDiffers);
+  const dirty = differing.length > 0;
   // 厂家下面一个模型都没有时也保存不过：host 的「成对」校验会拒（provider 有值、model 没有）。
   const invalid = FIELDS.some(isInvalid) || pairBlocked;
 
@@ -583,6 +567,8 @@ export function SettingsCard({
     setFailed(false);
     try {
       for (const desc of FIELDS) {
+        // 「厂家 + 具体模型」这一对单独处理，见循环之后。
+        if (desc.field === 'provider' || desc.field === 'model') continue;
         const draft = drafts[desc.field];
         if (draft === undefined) continue;
         const write = desc.spec.parse(draft);
@@ -595,6 +581,21 @@ export function SettingsCard({
           await scope.unset(desc.field);
         } else {
           await scope.set(desc.field, value);
+        }
+      }
+
+      // 这一对按**解析后的值**写，而不是按草稿：界面上的具体模型可能是自动落到第一个的
+      // （用户没单独编辑过它），只按草稿写会漏掉它，留下 provider 有值、model 为空的
+      // 坏配置 —— host 的「成对」校验会直接拒掉这次保存。
+      const pairWrites: readonly (readonly [keyof PluginConfig & string, string | undefined])[] = [
+        ['provider', pairProvider === '' ? undefined : pairProvider],
+        ['model', pairProvider === '' || pairModelResolved === '' ? undefined : pairModelResolved],
+      ];
+      for (const [field, value] of pairWrites) {
+        if (value === undefined || sameValue(value, defaultOf(field))) {
+          await scope.unset(field);
+        } else {
+          await scope.set(field, value);
         }
       }
       setDrafts({});
@@ -816,7 +817,12 @@ export function SettingsCard({
           <span className="stp-description">用模型总结会话标题的类型与主题，也可以退回关键词规则。</span>
         </span>
         {/* 折叠不影响暂存的改动，所以标题行要标出「有未保存的改动」。 */}
-        {dirty ? <span className="stp-pending">未保存</span> : null}
+        {dirty ? (
+          // 把「到底哪几项不同」挂在悬停提示里：标记不消失时鼠标一停就知道该查哪个字段。
+          <span className="stp-pending" title={`未保存：${differing.map((desc) => desc.label).join('、')}`}>
+            未保存
+          </span>
+        ) : null}
         <span className={expanded ? 'stp-chevron stp-chevronOpen' : 'stp-chevron'}>{ChevronIcon}</span>
       </button>
       {expanded ? (
