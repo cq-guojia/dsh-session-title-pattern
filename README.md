@@ -119,6 +119,13 @@ git 安装有两种写法，行为差别很大：
 ⚠️ 用 `#tag` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec 重装，
 结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新 tag。
 
+**每个发布版本都会打一个同名 tag**（`v0.6.2` 对应 `package.json` 的 `version`），
+发版时 tag 与提交一起推。想知道最新是哪个版本：
+
+```bash
+git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git | tail -1
+```
+
 需要确定性时用 tag，需要能自动升级时不要带 tag。
 
 ### 与内置 LLM 标题插件的关系
