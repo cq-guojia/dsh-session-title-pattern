@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-settings';
 
-import { callTitleModel, parseTitleLine, toSummary } from './llm';
+import { callTitleModel, parseTitleOutput, toSummary } from './llm';
 import type { LlmService } from './llm';
 import {
   DEFAULT_TITLE_TEMPLATE,
@@ -100,9 +100,10 @@ export const Config: z<Config> = z.object({
   // 30s 而不是 15s：手动重算会重置滚动状态、基于整段对话重来，再叠加免费档
   // 可能正在为主会话排队，15s 实测不够用（TimeoutReason: SESSION_TITLE_TIMEOUT）。
   timeoutMs: z.number().step(1).min(1).default(30_000),
-  // 128 而不是 64：带推理（thinking）的模型会把思考也算进 maxTokens，
-  // 64 很容易被思考吃掉、正文被截断（实测报过 `标题模型未正常结束（max-tokens）`）。
-  maxOutputTokens: z.number().step(1).min(1).default(128),
+  // 512：这一层是「保险丝」，不是给用户调的旋钮 —— 它是服务端的硬切断，到点就停；
+  // 太小会让带推理（thinking）的模型还没写标题就被断掉（实测报过 max-tokens）。
+  // 调大不花钱（上限不是预扣费，模型真写了才计费），因此界面上不暴露这一项。
+  maxOutputTokens: z.number().step(1).min(1).default(512),
   maxInputBytes: z.number().step(1).min(1).default(4096),
 });
 
@@ -113,6 +114,8 @@ export const Config: z<Config> = z.object({
  * 每次重算只发这一行摘要加新增消息，输入大小与会话总长度无关。
  */
 interface SessionState {
+  /** 模型维护的「主线」：这段会话从头到尾主要在干什么（抗标题漂移的锚）。 */
+  mainLine: string;
   /** 上一次产出的摘要行（`类型|主题`）。 */
   summary: string;
   /** 上一次重算时的人类消息条数。 */
@@ -171,7 +174,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
   private stateOf(id: string): SessionState {
     const existing = this.states.get(id);
     if (existing !== undefined) return existing;
-    const created: SessionState = { summary: '', seenCount: 0, count: 0 };
+    const created: SessionState = { mainLine: '', summary: '', seenCount: 0, count: 0 };
     remember(this.states, id, created);
     return created;
   }
@@ -198,7 +201,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       const startedAt = Date.now();
       const { text, route, inputBytes, truncated } = await callTitleModel(llm, name, config, request, state);
 
-      const parsed = parseTitleLine(text);
+      const parsed = parseTitleOutput(text);
       const first = request.messages[0];
       // 模型没按 `类型|主题` 输出时，类型回退到规则分类，主题照用，
       // 不因为格式问题让整次生成失败。
@@ -210,14 +213,17 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
             : FALLBACK_TYPE;
       const title = composeTitle(new Date(), type, parsed.topic, config);
 
-      state.summary = toSummary(text);
+      // 主线：模型给了就更新（它自己判断主线有没有变）；没给就沿用上一次的。
+      state.mainLine = parsed.mainLine.length > 0 ? parsed.mainLine : state.mainLine;
+      state.summary = toSummary(parsed.titleLine);
       state.seenCount = request.messages.length;
 
       // 可观测性：每次真调模型都留一条。出问题时一眼能看出走了哪条路由、
       // 发了多少字节、花了多久 —— 之前正常调用是完全静默的，排查只能靠猜。
       this.ctx.logger(name).info(
         `标题已生成（第 ${request.messages.length} 条消息，${route.provider}/${route.model}，` +
-          `输入 ${inputBytes} 字节，耗时 ${Date.now() - startedAt}ms）：${title}`,
+          `输入 ${inputBytes} 字节，耗时 ${Date.now() - startedAt}ms）：${title}` +
+          `；主线：${state.mainLine || '（空）'}`,
       );
       if (truncated) {
         this.ctx.logger(name).warn(
@@ -261,6 +267,8 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
       handler: async ({ agent, signal }) => {
         const state = states.get(agent.session.id);
         if (state !== undefined) {
+          // 手动重算 = 从头再来：主线也一并清空，让模型重新归纳。
+          state.mainLine = '';
           state.summary = '';
           state.seenCount = 0;
         }
@@ -301,7 +309,7 @@ function trackRecomputes(
     // 也不参与重算 —— 否则每次 fork 都要多付一次模型调用。
     if (session.header.parentSession !== undefined) return;
 
-    const state = states.get(session.id) ?? { summary: '', seenCount: 0, count: 0 };
+    const state = states.get(session.id) ?? { mainLine: '', summary: '', seenCount: 0, count: 0 };
     state.count += 1;
     if (!states.has(session.id)) remember(states, session.id, state);
 

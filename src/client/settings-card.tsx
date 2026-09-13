@@ -43,7 +43,6 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   provider: '',
   model: '',
   timeoutMs: 30_000,
-  maxOutputTokens: 128,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
 };
@@ -181,13 +180,6 @@ const FIELDS: readonly FieldDesc[] = [
     field: 'timeoutMs',
     label: '超时',
     hint: '单次模型调用超时（毫秒）。模型慢的时候（比如免费档在排队）就往大调',
-    spec: numberField,
-    modelOnly: true,
-  },
-  {
-    field: 'maxOutputTokens',
-    label: '输出标题最大Token',
-    hint: '单位是 token，128 大致相当于 200 个汉字。带推理的模型会连思考一起算，这一项只是防止模型啰嗦，一般不用改。',
     spec: numberField,
     modelOnly: true,
   },

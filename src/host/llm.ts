@@ -38,17 +38,31 @@ const MAX_TYPE_CHARS = 4;
 const SYSTEM_PROMPT = [
   '你是一个会话标题生成器。根据给出的人类消息，为这段会话生成一个标题。',
   '',
-  '只输出一行，格式为：类型|主题',
-  '- 类型：用两个汉字概括这段会话主要在做什么，例如「编程」「生成」「排查」「咨询」「文档」「配置」。',
-  '  上面的词只是方向示例，不要被它们限制，可以给出更贴切的类型。',
-  '- 主题：对整段会话的凝练总结，提炼关键词，不要照抄某一句话。',
+  '输出两行，除这两行外不要输出任何内容：',
+  '第一行：主线。一句话概括这段会话从头到尾**主要在干什么**。',
+  '  如果输入里给了 mainLine：会话目标没有变化时**原样返回**，不要改写；',
+  '  只有主线真的变了（转向了新目标）才更新它。',
+  '第二行：类型|主题。',
+  '  - 类型：两个汉字概括这段会话主要在做什么，例如「编程」「生成」「排查」「咨询」「文档」「配置」。',
+  '    这些词只是方向示例，不要被它们限制，可以给出更贴切的类型。',
+  '  - 主题：对整段会话的凝练总结，提炼关键词，不要照抄某一句话。',
+  '  - **主线优先**：标题必须与第一行的主线一致。最近几轮可能只是在解决主线下面',
+  '    的某个具体问题，不要让它们把标题带偏。',
   '',
-  '要求：跟随消息本身的语言；不要出现引号、Markdown、编号、解释或代码；不要换行。',
+  '要求：跟随消息本身的语言；行内不要引号、Markdown、编号或解释。',
 ].join('\n');
 
 /** 一次会话的滚动摘要状态。 */
 export interface RollState {
-  /** 上一次产出的摘要行（`类型|主题`），同时也是下一次重算的输入之一。 */
+  /**
+   * 模型维护的「主线」：这段会话从头到尾主要在干什么。
+   *
+   * 为什么需要它：**主线不一定出现在开头**（可能聊着聊着才转向），而输入天然偏向
+   * 最近几轮（比例约 20:1）—— 只靠首条消息锚不住。让模型逐轮判断并延续主线，
+   * 是唯一不依赖「开头正好写着它」的机制。
+   */
+  mainLine: string;
+  /** 上一次产出的标题行（`类型|主题`），同时也是下一次重算的输入之一。 */
   summary: string;
   /** 上一次重算时的人类消息条数，用于切出「新增」部分。 */
   seenCount: number;
@@ -127,6 +141,8 @@ export function buildPromptInput(
 
   const frame = (newMessages: string[]): string => {
     const payload: Record<string, unknown> = { firstMessage };
+    // mainLine 是抗漂移的锚：模型上一轮判断的主线，这一轮原样带回、由它决定要不要改。
+    if (state.mainLine.length > 0) payload.mainLine = state.mainLine;
     if (previousSummary.length > 0) payload.previousSummary = previousSummary;
     payload.newMessages = newMessages;
     return `根据以下 JSON 生成会话标题：\n${JSON.stringify(payload)}`;
@@ -165,6 +181,24 @@ export function parseTitleLine(raw: string): { type: string; topic: string } {
     return { type: [...head].slice(0, MAX_TYPE_CHARS).join(''), topic: rest.join(' ') };
   }
   return { type: '', topic: cleaned };
+}
+
+/**
+ * 解析模型的两行输出：第一行主线，第二行 `类型|主题`。
+ *
+ * 兼容退化：只吐出一行时按老格式（`类型|主题`）解析，**主线返回空串**、
+ * 由调用方沿用上一次的值 —— 不猜那一行到底是主线还是标题。
+ */
+export function parseTitleOutput(
+  raw: string,
+): { mainLine: string; type: string; topic: string; titleLine: string } {
+  const lines = raw.split('\n').map((part) => part.trim()).filter((part) => part.length > 0);
+  const [first, second] = lines;
+  if (first === undefined) return { mainLine: '', type: '', topic: '', titleLine: '' };
+  if (second === undefined) {
+    return { mainLine: '', ...parseTitleLine(first), titleLine: first };
+  }
+  return { mainLine: first, ...parseTitleLine(second), titleLine: second };
 }
 
 /**
