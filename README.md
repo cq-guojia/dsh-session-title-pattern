@@ -110,7 +110,7 @@ git 安装有两种写法，行为差别很大：
 | `retitleEvery` | number | `5` | 每多少条人类消息重算一次标题（仅 LLM 模式），最小 `0`。**`0` = 只在新建会话时算一次，之后不自动更新** |
 | `provider` | string | 空 | 指定模型 provider，**必须与 `model` 成对**；留空则跟随会话主模型 |
 | `model` | string | 空 | 指定模型 id，**必须与 `provider` 成对** |
-| `timeoutMs` | number | `15000` | 单次模型调用超时（毫秒） |
+| `timeoutMs` | number | `30000` | 单次模型调用超时（毫秒）。手动重算会基于整段对话重来，叠加免费档排队时 15 秒实测不够，故默认 30 秒 |
 | `maxOutputTokens` | number | `64` | 单次调用**输出** token 上限。64 大致相当于 100 个汉字，而标题只有一行，所以它是一根保险丝，一般不用改 |
 | `maxInputBytes` | number | `4096` | 单次调用输入字节上限（滚动摘要的硬预算） |
 | `template` | string | `{MMDD}｜{type}｜{topic}` | 标题格式模板，写法见下 |

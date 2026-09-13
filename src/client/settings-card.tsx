@@ -42,7 +42,7 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   retitleEvery: 5,
   provider: '',
   model: '',
-  timeoutMs: 15_000,
+  timeoutMs: 30_000,
   maxOutputTokens: 64,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
@@ -180,7 +180,7 @@ const FIELDS: readonly FieldDesc[] = [
   {
     field: 'timeoutMs',
     label: '超时',
-    hint: '单次模型调用超时（毫秒）',
+    hint: '单次模型调用超时（毫秒）。模型慢的时候（比如免费档在排队）就往大调',
     spec: numberField,
     modelOnly: true,
   },

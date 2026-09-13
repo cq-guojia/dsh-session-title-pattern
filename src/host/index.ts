@@ -97,7 +97,9 @@ export const Config: z<Config> = z.object({
   retitleEvery: z.number().step(1).min(0).default(5),
   provider: z.string().default(''),
   model: z.string().default(''),
-  timeoutMs: z.number().step(1).min(1).default(15_000),
+  // 30s 而不是 15s：手动重算会重置滚动状态、基于整段对话重来，再叠加免费档
+  // 可能正在为主会话排队，15s 实测不够用（TimeoutReason: SESSION_TITLE_TIMEOUT）。
+  timeoutMs: z.number().step(1).min(1).default(30_000),
   maxOutputTokens: z.number().step(1).min(1).default(64),
   maxInputBytes: z.number().step(1).min(1).default(4096),
 });
