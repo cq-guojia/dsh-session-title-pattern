@@ -39,7 +39,7 @@ export const SETTINGS_CSS = `
 .stp-reset{font:inherit;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;padding:0;font-size:12px;line-height:1.5}
 .stp-reset:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
 .stp-reset:disabled{cursor:default;opacity:.5}
-.stp-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}
+.stp-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5;appearance:none}
 .stp-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .stp-input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
 .stp-inputInvalid{border-color:var(--dsw-alias-label-error)}

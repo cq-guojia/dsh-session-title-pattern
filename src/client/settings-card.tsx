@@ -102,7 +102,12 @@ interface DirectoryRoute {
 type DirectoryState =
   | { status: 'loading' }
   | { status: 'unavailable'; reason: string }
-  | { status: 'ready'; routes: readonly DirectoryRoute[] };
+  | {
+      status: 'ready';
+      routes: readonly DirectoryRoute[];
+      /** 凭据域是否真的读到了。false 表示只按设置文档判断，列表可能偏多。 */
+      credentialsChecked: boolean;
+    };
 
 /** 一个字段保存时要做的事。`clear` 表示让它重新继承下层（我们走 `unset`）。 */
 type FieldWrite = { kind: 'set'; value: unknown } | { kind: 'clear' };
@@ -144,6 +149,8 @@ interface FieldDesc {
   label: string;
   hint?: string;
   spec: FieldSpec;
+  /** 只在 LLM 模式有意义；关掉「用模型总结标题」后整行隐藏。 */
+  modelOnly?: boolean;
 }
 
 /**
@@ -159,11 +166,35 @@ const FIELDS: readonly FieldDesc[] = [
     hint: '关闭后回到关键词规则分类，不再消耗 token',
     spec: modeField,
   },
-  { field: 'retitleEvery', label: '重算间隔', hint: '每多少条人类消息重新总结一次标题（条）', spec: numberField },
-  { field: 'provider', label: '服务商 provider', spec: textField },
-  { field: 'model', label: '模型 model', spec: textField },
-  { field: 'timeoutMs', label: '超时', hint: '单次模型调用超时（毫秒）', spec: numberField },
-  { field: 'maxOutputTokens', label: '输出上限', hint: '单次调用输出 token 上限', spec: numberField },
+  {
+    field: 'retitleEvery',
+    label: '每隔几条对话重算一次',
+    hint: '每多少条人类消息重新总结一次标题（条）',
+    spec: numberField,
+    modelOnly: true,
+  },
+  {
+    field: 'provider',
+    label: '标题总结大模型',
+    hint: '先挑哪家的模型来做总结',
+    spec: textField,
+    modelOnly: true,
+  },
+  { field: 'model', label: '具体模型', spec: textField, modelOnly: true },
+  {
+    field: 'timeoutMs',
+    label: '超时',
+    hint: '单次模型调用超时（毫秒）',
+    spec: numberField,
+    modelOnly: true,
+  },
+  {
+    field: 'maxOutputTokens',
+    label: '输出上限',
+    hint: '单次调用输出 token 上限',
+    spec: numberField,
+    modelOnly: true,
+  },
   { field: 'separator', label: '分隔符', hint: '标题各段之间的分隔符', spec: textField },
   {
     field: 'maxBytes',
@@ -210,6 +241,19 @@ function walk(node: unknown, path: readonly string[]): unknown {
     current = (current as Record<string, unknown>)[key];
   }
   return current;
+}
+
+/**
+ * 一个节点算不算「用户真的写了东西」。
+ *
+ * **空对象不算**。这条很关键：`settingsPath` 为空时 `walk(user, [])` 返回 `user` 本身，
+ * 而平台会给内置供应商预置一个空壳 profile —— 若只判断「不是 undefined」，
+ * 一堆没配置过的供应商（比如没填 key 的 DeepSeek）就会混进列表。
+ */
+function isMeaningful(node: unknown): boolean {
+  if (node === undefined || node === null) return false;
+  if (typeof node === 'object') return Object.keys(node as object).length > 0;
+  return true;
 }
 
 /** 从某个 provider 的 profile 里读出 `models` 数组。 */
@@ -319,9 +363,13 @@ async function loadDirectory(
     }
     let configuredRefs: ReadonlySet<string> | undefined;
     const credentials = getCredentials();
-    if (credentials !== undefined && refs.length > 0) {
+    if (credentials !== undefined) {
       try {
-        configuredRefs = parseConfiguredRefs(await credentials.describe([...new Set(refs)]));
+        // 没有任何 profile 命名凭据时不必发这次请求，直接算「查过了」。
+        configuredRefs =
+          refs.length === 0
+            ? new Set<string>()
+            : parseConfiguredRefs(await credentials.describe([...new Set(refs)]));
       } catch {
         configuredRefs = undefined;
       }
@@ -332,11 +380,19 @@ async function loadDirectory(
       if (!activeIds.has(provider)) continue;
 
       const view = address.settingsNs === undefined ? undefined : findView(address.settingsNs);
-      // 用户层写没写过这个 provider 的 profile。
-      const userConfigured = walk(view?.user, address.settingsPath) !== undefined;
+      const userConfigured = isMeaningful(walk(view?.user, address.settingsPath));
       const ref = readApiKeyRef(view?.value, address.settingsPath);
-      const credentialConfigured = ref !== undefined && configuredRefs?.has(ref) === true;
-      if (!userConfigured && !credentialConfigured) continue;
+
+      if (ref !== undefined) {
+        // profile 命名了凭据引用：**以凭据域为准** —— key 到底配没配，只有它知道。
+        // 「profile 写了个引用名」不等于「配了 key」，这是上一版把没配的供应商
+        // 也列出来的根因。凭据域读不到时才退回用户层判定。
+        const usable = configuredRefs !== undefined ? configuredRefs.has(ref) : userConfigured;
+        if (!usable) continue;
+      } else if (!userConfigured) {
+        // 没命名任何引用：只有用户层真的写过它，才算「我配了」。
+        continue;
+      }
 
       routes.push({
         provider,
@@ -345,7 +401,7 @@ async function loadDirectory(
       });
     }
     routes.sort((left, right) => left.displayName.localeCompare(right.displayName));
-    return { status: 'ready', routes };
+    return { status: 'ready', routes, credentialsChecked: configuredRefs !== undefined };
   } catch (error) {
     return { status: 'unavailable', reason: String(error) };
   }
@@ -554,7 +610,7 @@ export function SettingsCard({
   };
 
   /** 开关字段：标题与说明在左，开关在右（对齐官方 MCP / Subagent 卡片的开关行）。 */
-  const renderToggle = (desc: FieldDesc): React.JSX.Element => (
+  const renderToggle = (desc: FieldDesc, notice?: string): React.JSX.Element => (
     <div key={desc.field} className="stp-field">
       <div className="stp-toggleRow">
         <div className="stp-toggleLabel">
@@ -569,6 +625,8 @@ export function SettingsCard({
           onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
         />
       </div>
+      {/* 关掉模型总结后，把「接下来会怎样」直接写在开关下面。 */}
+      {notice === undefined ? null : <p className="stp-hint">{notice}</p>}
     </div>
   );
 
@@ -599,6 +657,9 @@ export function SettingsCard({
             {`未能读取已配置的模型列表（${directory.reason}），这两行已退回手动输入`}
           </p>
         ) : null}
+        {desc.field === 'provider' && directory.status === 'ready' && !directory.credentialsChecked ? (
+          <p className="stp-hint">未能读取凭据状态，列表只按设置文档判断，可能多列出没配好的供应商</p>
+        ) : null}
       </div>
     );
   };
@@ -606,8 +667,16 @@ export function SettingsCard({
   if (!ready) return null;
 
   const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
-  // 跟随会话主模型时根本没有第二个选择，模型那一行就不出现。
-  const visibleFields = FIELDS.filter((desc) => desc.field !== 'model' || providerValue !== '');
+  const modeDesc = FIELDS.find((desc) => desc.field === 'mode');
+  // 以草稿为准：把开关关掉后，下面那些只对模型有意义的项应当**立刻**消失，
+  // 不用等保存。关掉之后没有什么可配的，留着只会让人以为还生效。
+  const modelMode = modeDesc === undefined || draftText(modeDesc) !== 'rules';
+  const visibleFields = FIELDS.filter((desc) => {
+    if (desc.modelOnly === true && !modelMode) return false;
+    // 跟随会话主模型时没有第二个选择，具体模型那一行不出现。
+    if (desc.field === 'model' && providerValue === '') return false;
+    return true;
+  });
 
   return (
     <li className={expanded ? 'stp-card stp-cardOpen' : 'stp-card'}>
@@ -628,7 +697,15 @@ export function SettingsCard({
       </button>
       {expanded ? (
         <div className="stp-body">
-          {visibleFields.map((desc) => (desc.field === 'mode' ? renderToggle(desc) : renderField(desc)))}
+          {modeDesc === undefined
+            ? null
+            : renderToggle(
+                modeDesc,
+                modelMode
+                  ? undefined
+                  : '已改用关键词规则：类型按关键词匹配得出、主题取首条消息原文，标题不会随对话更新。下面的分隔符与长度上限仍然有效。',
+              )}
+          {visibleFields.filter((desc) => desc.field !== 'mode').map(renderField)}
           <div className="stp-footer">
             {failed ? (
               <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>

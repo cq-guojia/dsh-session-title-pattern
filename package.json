@@ -1,7 +1,7 @@
 {
   "name": "@cq-guojia/dsh-session-title-pattern",
   "description": "Deterministic session title formatter: MMDD｜类型｜主题",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "main": "lib/index.mjs",
   "types": "lib/index.d.mts",
