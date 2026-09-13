@@ -852,18 +852,19 @@ export function SettingsCard({
             <button
               type="button"
               className="stp-discard"
-              disabled={busy}
+              disabled={busy || !dirty}
               onClick={() => {
                 setFailed(false);
-                // 把所有字段都填回默认值；点保存即一并写回。
-                setDrafts(
-                  Object.fromEntries(
-                    FIELDS.map((desc) => [desc.field, desc.spec.format(defaultOf(desc.field))]),
-                  ),
-                );
+                // 丢掉所有未保存的草稿，回到已保存的状态。
+                //
+                // 这里原来是「把各字段填回 schema 默认值」，但那会连 supplier /
+                // 具体模型一起清空 —— 用户存过自定义模型时，点一下就等于改了模型选择，
+                // 于是「未保存」亮起且之后改什么都清不掉（那两个草稿一直在）。
+                // 清回默认是各字段自己那个「恢复默认」的职责，这里只负责撤销本次改动。
+                setDrafts({});
               }}
             >
-              重置为默认值
+              撤销改动
             </button>
             <button
               type="button"
