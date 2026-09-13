@@ -505,7 +505,7 @@ export function SettingsCard({
     pairModels !== undefined && pairProvider !== '' && pairModels.length === 0 && pairModel === '';
 
   /**
-   * 是否「已覆盖」。
+   * 是否「自定义」过（界面上那个标签）。
    *
    * 与官方「键存在即覆盖」不同：用户要的是「和默认值一样就当没改过」，
    * 所以这里额外比一次默认值 —— 一个恰好等于默认值的取值不算覆盖。
@@ -623,7 +623,7 @@ export function SettingsCard({
    * 供应商 + 模型：**一行两个下拉**，不再拆成两个字段。
    *
    * 为什么合并：这本来就是一件事（先挑哪家的、再挑哪个模型），拆成两行时每行都要一套
-   * 「标签 + 已覆盖 + 恢复默认 + 说明」，读起来非常啰嗦。两个框的内容本身就能说明各自
+   * 「标签 + 自定义 + 恢复默认 + 说明」，读起来非常啰嗦。两个框的内容本身就能说明各自
    * 是干什么的（一边是厂家名、一边是模型名），所以也不再各配一个标签 —— 左边第一个
    * 选项是「跟随对话模型」，右边是该厂家下的具体模型 —— **必须选一个、不给留空**，
    * 选中厂家后自动落到第一个，换厂家时同样自动落到新家的第一个。
@@ -655,7 +655,7 @@ export function SettingsCard({
         <div className="stp-head">
           <span className="stp-label">{providerDesc.label}</span>
           <span className="stp-badges">
-            {overridden ? <span className="stp-overridden">已覆盖</span> : null}
+            {overridden ? <span className="stp-overridden">自定义</span> : null}
             <button type="button" className="stp-reset" disabled={!writable || !overridden} onClick={restore}>
               恢复默认
             </button>
@@ -753,7 +753,7 @@ export function SettingsCard({
           <span className="stp-toggleTitle">{desc.label}</span>
           {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
         </div>
-        {isOverridden(desc) ? <span className="stp-overridden">已覆盖</span> : null}
+        {isOverridden(desc) ? <span className="stp-overridden">自定义</span> : null}
         <Switch
           checked={draftText(desc) !== 'rules'}
           disabled={!writable}
@@ -774,7 +774,7 @@ export function SettingsCard({
         <div className="stp-head">
           <span className="stp-label">{desc.label}</span>
           <span className="stp-badges">
-            {overridden ? <span className="stp-overridden">已覆盖</span> : null}
+            {overridden ? <span className="stp-overridden">自定义</span> : null}
             <button
               type="button"
               className="stp-reset"
@@ -864,7 +864,7 @@ export function SettingsCard({
                 setDrafts({});
               }}
             >
-              撤销改动
+              放弃修改
             </button>
             <button
               type="button"
