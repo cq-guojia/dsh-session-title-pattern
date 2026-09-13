@@ -94,7 +94,7 @@ export const Config: z<Config> = z.object({
   maxBytes: z.number().step(1).min(20).default(80),
   mode: z.union([z.const('llm'), z.const('rules')]).default('llm'),
   // min(0)：0 = 不自动重算，只在首条消息时生成一次。
-  retitleEvery: z.number().step(1).min(0).default(5),
+  retitleEvery: z.number().step(1).min(0).default(10),
   provider: z.string().default(''),
   model: z.string().default(''),
   // 30s 而不是 15s：手动重算会重置滚动状态、基于整段对话重来，再叠加免费档

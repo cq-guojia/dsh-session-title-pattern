@@ -39,7 +39,7 @@ export interface PluginConfig {
  */
 const FALLBACK_DEFAULTS: Record<string, unknown> = {
   mode: 'llm',
-  retitleEvery: 5,
+  retitleEvery: 10,
   provider: '',
   model: '',
   timeoutMs: 30_000,
