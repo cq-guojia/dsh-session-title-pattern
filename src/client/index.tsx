@@ -63,6 +63,18 @@ const UNLOCK_LINE = '/title-unlock';
 /** 草稿命令：按当前对话真算一版标题，只返回文本、不写入，给「自动生成」按钮用。 */
 const SUGGEST_LINE = '/title-suggest';
 
+/** 状态查询命令：问 host「当前标题锁没锁」，回答是 `locked` / `unlocked`。 */
+const STATE_LINE = '/title-state';
+
+/**
+ * 本面板依赖的全部命令（不含斜杠），打开时用来自检。
+ *
+ * 「点了没反应」最费时间的一处就是猜命令到底注册上没有，直接把缺哪条打出来。
+ */
+const REQUIRED_COMMANDS = [RENAME_LINE, LOCK_LINE, UNLOCK_LINE, SUGGEST_LINE, STATE_LINE].map(
+  (line) => line.slice(1),
+);
+
 /** 浏览器控制台前缀，便于排查。 */
 const LOG = '[dsh-session-title-pattern]';
 
@@ -96,6 +108,10 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   lock: () => void;
   /** 解锁（恢复自动更新；标题内容不变，不触发重新生成）。 */
   unlock: () => void;
+  /** 问 host「锁没锁」：回答 `locked` / `unlocked`，失败 resolve undefined。 */
+  readState: () => Promise<string | undefined>;
+  /** 自检：本面板依赖的命令是否都注册了，缺的打进控制台。 */
+  checkCommands: () => void;
 };
 
 /**
@@ -114,6 +130,8 @@ function GenerateTitleAction({
   rename,
   lock,
   unlock,
+  readState,
+  checkCommands,
 }: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。
   const running = useSession((snapshot) => snapshot.running);
@@ -160,6 +178,13 @@ function GenerateTitleAction({
   const openPanel = (): void => {
     setDraft(typeof currentTitle === 'string' ? currentTitle : '');
     setOpen(true);
+    // 锁定态以 host 为准：本地 state 刷新即丢，而「锁没锁」只有 host 看得到
+    // （title 投影只带文本不带来源）。问一次再显示，避免刷新后开关说谎。
+    void readState().then((text) => {
+      if (typeof text !== 'string') return;
+      setLocked(text.trim() === 'locked');
+    });
+    checkCommands();
   };
 
   /**
@@ -410,6 +435,26 @@ export function apply(ctx: Context): void {
       .catch(() => undefined);
   };
 
+  /**
+   * 自检：本面板依赖的命令是否都在 host 注册了。
+   *
+   * `execute()` 对「命令没注册」只回一个 undefined、不留任何痕，表现就是点了没反应。
+   * 打开面板时列一次命令表，缺哪条直接写进控制台 —— 不用再靠猜。
+   */
+  const checkCommands = (sessionId: string): void => {
+    if (commands === undefined) return;
+    void commands
+      .list(sessionId)
+      .then((entries: readonly { name: string }[]) => {
+        const known = new Set(entries.map((entry) => entry.name));
+        const missing = REQUIRED_COMMANDS.filter((name) => !known.has(name));
+        if (missing.length > 0) {
+          console.warn(`${LOG} 命令未注册（点了会没反应）：${missing.join('、')}`);
+        }
+      })
+      .catch(() => undefined);
+  };
+
   ctx.inject(['slots'], (sub) => {
     // slots.inject 等待 owner 声明该 slot，owner 折叠时贡献自动移除。
     sub.slots.inject(SLOT, () =>
@@ -425,6 +470,8 @@ export function apply(ctx: Context): void {
             rename: (title: string) => void runLine(sessionId, `${RENAME_LINE} ${title}`),
             lock: () => void runLine(sessionId, LOCK_LINE),
             unlock: () => void runLine(sessionId, UNLOCK_LINE),
+            readState: () => runLine(sessionId, STATE_LINE),
+            checkCommands: () => checkCommands(sessionId),
           }),
         },
         GenerateTitleAction,

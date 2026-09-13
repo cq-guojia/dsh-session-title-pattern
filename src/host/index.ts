@@ -58,6 +58,21 @@ const UNLOCK_COMMAND = 'title-unlock';
 const SUGGEST_COMMAND = 'title-suggest';
 
 /**
+ * 锁定状态查询命令：面板打开时用它把「到底锁没锁」问回来。
+ *
+ * 平台的 title 投影只带文本不带来源（wire 类型是 `string | null`），浏览器读不到
+ * `source.kind`，所以「当前是否锁定」只能由 host 回答 —— 这就是 v0.6.0 那条
+ * 「锁定态只有本地记忆，刷新后按未锁定显示」限制的彻底解法。
+ */
+const STATE_COMMAND = 'title-state';
+
+/** `title-state` 的回答：已锁定（标题来源是「用户」）。 */
+const LOCKED = 'locked';
+
+/** `title-state` 的回答：未锁定。 */
+const UNLOCKED = 'unlocked';
+
+/**
  * 同时跟踪的会话上限。
  *
  * 每个会话只留一行摘要与两个计数，代价极小，但这是个长期运行的插件，
@@ -371,7 +386,31 @@ function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void 
 }
 
 /**
- * 面板专用命令：`title-suggest`（自动生成的草稿）与 `title-unlock`（单纯解锁）。
+ * 草稿该用哪条模型路由。
+ *
+ * 服务的自动调度会把「当前主请求路由」塞进 `request.route`（取自
+ * `session.requestHeader()?.config`），而草稿命令是**自己拼 request** 的 ——
+ * 不补这一条，跟随对话模型时必然落到 `resolveRoute()` 的「没有可用的模型路由」
+ * 分支（v0.6.2 实机就是这个错，而 `/retitle` 走服务所以一直是好的）。
+ *
+ * 取不到就返回 undefined，由调用方退回关键词规则：草稿只是个可编辑的起点，
+ * 不值得为它报一个错误。
+ */
+function draftRoute(
+  session: SessionTitleProviderRequest['session'],
+  config: Config,
+): { provider: string; model: string } | undefined {
+  if (config.provider.length > 0 && config.model.length > 0) {
+    return { provider: config.provider, model: config.model };
+  }
+  const header = session.requestHeader();
+  if (header === undefined) return undefined;
+  return { provider: header.config.provider, model: header.config.model };
+}
+
+/**
+ * 面板专用命令：`title-suggest`（自动生成的草稿）、`title-unlock`（单纯解锁）
+ * 与 `title-state`（查锁定状态）。
  *
  * 两个命令都给设置面板的浮层用，不打算让用户手敲，但注册成命令可以完全复用
  * 命令通道（host 执行、结果随 CommandResult 带回浏览器），不用另开远程接口。
@@ -399,9 +438,11 @@ function registerPanelCommands(
           return { kind: 'error', text: '会话里还没有可用于起标题的消息' };
         }
         try {
+          // 路由必须自己补：草稿不走服务的自动调度，没人替我们填 request.route。
+          const route = config.mode === 'llm' ? draftRoute(agent.session, config) : undefined;
           if (config.mode === 'llm') {
             const llm = getLlm();
-            if (llm !== undefined) {
+            if (llm !== undefined && route !== undefined) {
               // 草稿是**只读**的旁路：滚动状态传浅拷贝，绝不碰真身的
               // summary / seenCount / mainLine —— 正式重算的增量逻辑不能被预览打扰。
               const existing = states.get(agent.session.id);
@@ -411,6 +452,7 @@ function registerPanelCommands(
               const request: SessionTitleProviderRequest = {
                 session: agent.session,
                 messages,
+                route,
                 signal,
               };
               const { text } = await callTitleModel(llm, name, config, request, scratch);
@@ -424,8 +466,16 @@ function registerPanelCommands(
                     : FALLBACK_TYPE;
               return { kind: 'success', text: composeTitle(new Date(), type, parsed.topic, config) };
             }
+            if (route === undefined) {
+              // 会话还没有主请求路由（首轮之前），且配置里也没指定 provider/model。
+              // 草稿照出（关键词规则），但留一条：想让它用模型，把那一对填上即可。
+              ctx.logger(name).warn(
+                '自动生成草稿：会话尚未记录主请求路由，本次改用关键词规则。' +
+                  '想让草稿走模型，请在本插件配置里同时指定 provider 与 model',
+              );
+            }
           }
-          // rules 模式（或 llm 未就绪）退到关键词规则，草稿依旧可用。
+          // rules 模式（或 llm 未就绪 / 没有路由）退到关键词规则，草稿依旧可用。
           return { kind: 'success', text: buildRuleTitle(messages, config) };
         } catch (error) {
           return { kind: 'error', text: `生成草稿失败：${String(error)}` };
@@ -451,6 +501,23 @@ function registerPanelCommands(
         } catch (error) {
           return { kind: 'error', text: `解锁失败：${String(error)}` };
         }
+      },
+    }),
+  );
+
+  ctx.effect(() =>
+    ctx.commands.register({
+      name: STATE_COMMAND,
+      description: '查询当前会话标题是否处于锁定状态',
+      recordInput: false,
+      handler: ({ agent }) => {
+        // 「锁没锁」就是标题来源是不是「用户」：rename 写入的标题 source 为 user，
+        // 自动命名随即停止调度。这个字段只有 host 看得到，面板靠本命令拿它。
+        const snapshot = ctx.sessionTitle.get(agent.session);
+        return {
+          kind: 'success',
+          text: snapshot?.source.kind === 'user' ? LOCKED : UNLOCKED,
+        };
       },
     }),
   );

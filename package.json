@@ -1,7 +1,7 @@
 {
   "name": "@cq-guojia/dsh-session-title-pattern",
   "description": "自动管理 dsh 会话标题，统一成「日期｜类型｜主题」的格式：类型与主题由模型对整段对话总结。",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "keywords": [
     "deepseek",
     "harness",
