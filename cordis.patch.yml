@@ -1,4 +1,5 @@
-# dsh-session-title-pattern: deterministic MMDD｜类型｜主题 title provider
+# dsh-session-title-pattern: 会话标题 provider（日期｜类型｜主题）
+# 默认由模型对整段对话总结类型与主题，可切回零 token 的关键词规则。
 
 # SessionTitleService.register() 全局只允许一个 provider，重复注册直接抛
 # "session-title provider ... is already registered"。
