@@ -11,9 +11,50 @@
 
 ---
 
-## 当前版本：v0.3.2
+## 当前版本：v0.4.0
 
-### v0.3.2（本次）
+### v0.4.0（本次）
+
+设置界面：在 dsh「设置 → 插件」里为本插件提供一张配置卡片。
+
+**配对机制**：卡片由同一个包的两半配对 —— host 半用 `ctx.settings.installSection` 注册
+命名空间 `session-title-pattern`，client 半把卡片注册到 `settings.plugin.item` 槽位并以
+**同一个命名空间为 `key`**。设置页的「插件」标签页遍历 host 提供的命名空间，逐个
+`renderSlot("settings.plugin.item", {}, { entryKey: ns })` 拉取卡片。
+
+**8 项可配置**：mode（开关）、retitleEvery、provider、model、timeoutMs、maxOutputTokens、
+separator、maxBytes。分三组：前两项常显，「模型」与「标题格式」默认折叠。
+`maxInputBytes` 刻意不露出（滚动摘要的内部成本预算，需要时走 `cordis.patch.yml`）。
+
+**表单语义**：官方 `CardForm` 用「暂存 + 保存」而不是改一下即提交，理由是每次写入都是
+可持久化的、带修订号栅栏的文档变更，边改边写会把一次输入变成用户没要求、也无法预览的写入。
+卡片照此实现：草稿 + 保存/放弃 + 单字段恢复默认 + 全部恢复默认。覆盖状态按 `user` 层的
+**键存在性**判断（不是比值 —— 等于默认值的覆盖仍然是覆盖），有草稿时按草稿预演，
+徽标不与屏幕上的输入自相矛盾。
+
+**配置改成动态读取**：provider 原先在构造时把 config 冻结进字段；现在持有 `source()`，
+每次 `generate` 现读。`onChange` 里替换来源并**清空滚动摘要**（换了模型或间隔后旧摘要
+不再匹配新设置）。`trackRecomputes` 也不再只在 apply 时判断 mode —— 模式可以随时切换。
+
+**跨字段校验**：`validate` 拒绝 provider/model 只填一项的写入（schema 表达不了的约束），
+用户在设置页立刻收到失败提示。
+
+**新增依赖**：`@deepseek-ai/dsh-settings`（peer + dev）、`@deepseek-ai/dsh-client-ui-settings`
+与 `@deepseek-ai/dsh-client-ui-settings-plugins`（dev，仅类型）。三者都加了
+`dsh.client.inject`（后两者是客户端插件）。
+
+**三个踩坑记录**：
+
+1. **版本标签陷阱**：`npm view <pkg> version` 拿到的是 `latest` 标签，而这两个设置包
+   `latest` 指向旧的 `0.0.1-rc.x` 版本线，与整条 `0.1.5-rc.2` 栈 peer 冲突（ERESOLVE 装不上）。
+   正确版本在 **`next` 标签 = `0.1.5-rc.2`**。
+2. **类型增强必须显式 import**：`ctx.settings` 的声明来自 `@deepseek-ai/dsh-settings`，
+   而 tsconfig 的 `types` 是空的 —— 不写 `import type {} from '@deepseek-ai/dsh-settings'`
+   就报 TS2339。
+3. **受保护代理**：`ctx.settings` 与 `ctx.settingsScope` 都不能直接访问，一律走
+   `ctx.inject([...])` 延迟注入（同 v0.3.1 的 `ctx.llm`）。
+
+### v0.3.2
 
 文案细化。悬浮气泡不占布局空间，所以把说明写全：
 

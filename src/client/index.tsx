@@ -11,6 +11,11 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致 ——
 // 图标集有 49 个 `IconXxx16`，侧边栏开关等内置按钮用的就是同一套。
 import { Button, IconEditOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
+// settingsScope 的类型增强在设置包自身的 client 入口里。
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
+
+import { SETTINGS_NS, SettingsCard } from './settings-card';
+import type { PluginConfig } from './settings-card';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -176,5 +181,23 @@ export function apply(ctx: Context): void {
       ),
     );
     console.info(`${LOG} 已注册「生成标题」到 ${SLOT}`);
+  });
+
+  // 设置卡片：host 半用同一个命名空间注册 settings section，这里按命名空间注册卡片，
+  // 设置页的「插件」标签页会遍历已服务的命名空间并自动配对渲染。
+  ctx.inject(['slots', 'settingsScope'], (sub) => {
+    const scope = sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS });
+    sub.slots.inject('settings.plugin.item', () =>
+      sub.slots.register(
+        {
+          name: 'settings.plugin.item',
+          // keyed 槽位用 key 声明本条贡献给哪个命名空间（list 才是 id/order）。
+          key: SETTINGS_NS,
+          inject: () => ({ scope }),
+        },
+        SettingsCard,
+      ),
+    );
+    console.info(`${LOG} 已注册设置卡片到 settings.plugin.item（${SETTINGS_NS}）`);
   });
 }

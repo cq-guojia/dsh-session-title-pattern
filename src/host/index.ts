@@ -6,10 +6,12 @@ import type {
   SessionTitleProviderRequest,
   SessionTitleProviderResult,
 } from '@deepseek-ai/dsh-session-title';
-// 下面几个只为拿到类型增强（ctx.commands / ctx.llm / session 事件），不含运行时值。
+// 下面几个只为拿到类型增强（ctx.commands / ctx.llm / ctx.settings / session 事件），
+// 不含运行时值。tsconfig 的 types 是空的，模块增强必须靠显式 import 才会被加载。
 import type {} from '@deepseek-ai/dsh-commands';
 import type {} from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
+import type {} from '@deepseek-ai/dsh-settings';
 
 import { callTitleModel, parseTitleLine, toSummary } from './llm';
 import type { LlmService } from './llm';
@@ -31,6 +33,12 @@ export const name = 'dsh-session-title-pattern';
  * `commands` / `llm` 是可选的，绝不能写在这里 —— 用 apply 里的 `ctx.inject()` 延迟等待。
  */
 export const inject = ['sessionTitle'] as const;
+
+/**
+ * 设置命名空间。必须全小写连字符（否则 `installSection` 抛 `TypeError`）。
+ * 客户端半用同一个字面量注册卡片，两边靠它配对。
+ */
+const SETTINGS_NS = 'session-title-pattern';
 
 /** 手动重算标题的命令名（不含斜杠）。 */
 const RETITLE_COMMAND = 'retitle';
@@ -131,7 +139,13 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
 
   constructor(
     private readonly ctx: Context,
-    private readonly config: Config,
+    /**
+     * 每次读取当前生效的配置。
+     *
+     * 不能在构造时把 config 冻结进字段：设置服务挂上来之后会把来源换成「解析后的
+     * 用户设置」，并在每次提交后替换 —— 冻结了就永远读不到用户在设置页改的值。
+     */
+    private readonly getConfig: () => Config,
     private readonly states: Map<string, SessionState>,
     /** 延迟注入的 llm 服务；未就绪时返回 undefined。 */
     private readonly getLlm: () => LlmService | undefined,
@@ -147,9 +161,11 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
 
   async generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult> {
     const messageSeqs = request.messages.map((message) => message.seq);
+    // 每次调用都读当前生效的配置，而不是构造时冻结的那份。
+    const config = this.getConfig();
 
-    if (this.config.mode !== 'llm') {
-      return { title: buildRuleTitle(request.messages, this.config), messageSeqs };
+    if (config.mode !== 'llm') {
+      return { title: buildRuleTitle(request.messages, config), messageSeqs };
     }
 
     const state = this.stateOf(request.session.id);
@@ -162,7 +178,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
             '请安装它，或把本插件的 mode 设为 rules',
         );
       }
-      const { text, route } = await callTitleModel(llm, name, this.config, request, state);
+      const { text, route } = await callTitleModel(llm, name, config, request, state);
 
       const parsed = parseTitleLine(text);
       const first = request.messages[0];
@@ -174,12 +190,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
           : first !== undefined
             ? classifyMessage(first)
             : FALLBACK_TYPE;
-      const title = composeTitle(
-        formatPatternDate(new Date()),
-        type,
-        parsed.topic,
-        this.config,
-      );
+      const title = composeTitle(formatPatternDate(new Date()), type, parsed.topic, config);
 
       state.summary = toSummary(text);
       state.seenCount = request.messages.length;
@@ -245,10 +256,12 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
  */
 function trackRecomputes(
   ctx: Context,
-  config: Config,
+  getConfig: () => Config,
   states: Map<string, SessionState>,
 ): void {
   ctx.on('session/event', (session, event) => {
+    // 模式每次现读：用户可以在设置里随时切回 rules，订阅不能只在 apply 时判断一次。
+    const config = getConfig();
     if (config.mode !== 'llm' || !isEligibleUserMessage(event)) return;
     // 只处理顶层会话。fork 出的子会话（子代理）沿用服务的既有行为：不做自动命名、
     // 也不参与重算 —— 否则每次 fork 都要多付一次模型调用。
@@ -276,6 +289,12 @@ export function apply(ctx: Context, config: Config): void {
   const states = new Map<string, SessionState>();
   const logger = ctx.logger(name);
 
+  // 当前生效的配置来源。默认是 cordis 组合里的 entry；设置服务挂上来之后会被换成
+  // 「解析后的用户设置」，并在每次提交后替换。所以所有读取都必须经过这里，
+  // 绝不能把 apply 收到的 config 冻结进闭包。
+  let source: () => Config = () => config;
+  const currentConfig = (): Config => source();
+
   // llm 绝不能写进 inject 声明：`mode: rules` 时我们根本不需要它，而声明式依赖
   // 会让本 entry 在缺少该服务的组合里一直 pending。用 ctx.inject 延迟等待：
   // 拿不到就只是「LLM 模式不可用」，rules 模式照常工作。
@@ -287,7 +306,7 @@ export function apply(ctx: Context, config: Config): void {
     llm = llmCtx.llm;
   });
 
-  const provider = new SessionTitlePatternProvider(ctx, config, states, () => llm);
+  const provider = new SessionTitlePatternProvider(ctx, currentConfig, states, () => llm);
 
   // SessionTitleService.register() 是全局单例，重复注册直接抛。
   // 正常情况下我们的 bundle patch 会禁用 dsh-base 的 session-title-llm，
@@ -307,16 +326,43 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => dispose);
 
-  if (config.mode === 'llm') {
-    if ((config.provider.length > 0) !== (config.model.length > 0)) {
-      // 只配了一个等于没配。官方 LLM 标题插件同样要求成对出现。
-      logger.warn(
-        `provider / model 必须成对配置，当前 provider=${JSON.stringify(config.provider)}、` +
-          `model=${JSON.stringify(config.model)}，将忽略这两项并跟随会话主模型。`,
-      );
-    }
-    trackRecomputes(ctx, config, states);
+  // 把本插件的 Config 暴露成用户可编辑的 settings section：设置页的「插件」标签页
+  // 会遍历 host 提供的命名空间，并按命名空间找到我们在浏览器里注册的那张卡片。
+  //
+  // 同样不能直接写 `ctx.settings`（受保护代理），走 ctx.inject 延迟等待。
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, config, {
+      setSource: (current) => {
+        source = current;
+      },
+      onChange: () => {
+        // 配置变了就清空滚动摘要：换了模型或重算间隔之后，旧摘要不再匹配新设置，
+        // 让下一次重算按新配置从头开始。
+        states.clear();
+        const next = currentConfig();
+        logger.info(`设置已更新：mode=${next.mode}、retitleEvery=${next.retitleEvery}`);
+      },
+      validate: (value) => {
+        // schema 表达不了的跨字段约束：provider 与 model 必须成对。
+        // 抛错会拒绝这次写入，用户在设置页立刻收到失败提示。
+        if ((value.provider.length > 0) !== (value.model.length > 0)) {
+          throw new Error('provider 与 model 必须同时填写，或同时留空');
+        }
+      },
+    });
+  });
+
+  // 组合配置（cordis 配置）里只填了一项的情况走不到 validate，这里补一条提示。
+  const initial = currentConfig();
+  if ((initial.provider.length > 0) !== (initial.model.length > 0)) {
+    logger.warn(
+      `provider / model 必须成对配置，当前 provider=${JSON.stringify(initial.provider)}、` +
+        `model=${JSON.stringify(initial.model)}，将忽略这两项并跟随会话主模型。`,
+    );
   }
+
+  // 不按「当时的模式」决定要不要挂订阅：模式可以在设置里随时切换。
+  trackRecomputes(ctx, currentConfig, states);
 
   // commands 由 dsh-base 提供，但绝不能写进 inject 声明：组合里一旦没有命令服务，
   // 声明式依赖会让本 entry 永远 pending，而 pending 的 entry 会让 dsh 启动失败。
