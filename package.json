@@ -1,7 +1,7 @@
 {
   "name": "@cq-guojia/dsh-session-title-pattern",
-  "description": "Deterministic session title formatter: MMDD｜类型｜主题",
-  "version": "0.5.16",
+  "description": "会话标题格式化为「日期｜类型｜主题」：类型与主题由模型对整段对话总结，也可切回零 token 的关键词规则",
+  "version": "0.5.17",
   "type": "module",
   "main": "lib/index.mjs",
   "types": "lib/index.d.mts",
@@ -17,6 +17,7 @@
   },
   "files": [
     "lib",
+    "docs",
     "cordis.patch.yml",
     "README.md"
   ],
