@@ -11,15 +11,55 @@
 
 ---
 
-## 当前版本：v0.2.7
+## 当前版本：v0.2.8
 
-### v0.2.7（本次）
+### v0.2.8（本次）
 
-按钮改为**图标按钮**（内联四角星 SVG + `title="生成标题"`），不再显示「生成标题」文字。
+解除会话标题的宽度硬上限。客户端激活时自动注入：
 
-原因：头部三组右侧容器（`headerActions` / `headerUtilities` / `headerCorner`）都是
-`flex:none`，而标题所在的 `.titleCluster` 是 `flex:1` —— **标题吃的是剩余宽度**，
-右侧每多占 1px，标题就少 1px。文字按钮约 68px，图标按钮约 36px，等于还给标题 30 多像素。
+```css
+[class*="_crumbCurrent"]{max-width:min(640px, 60vw) !important;}
+```
+
+**根因**：会话标题是头部面包屑的最后一段（`_crumb` + `_crumbCurrent`），上游给它写死了
+`max-width:220px`，与窗口缩放无关。核算：`220 − 16(左右内边距) = 204px` 可用；
+`0913 ` 约 38px + `测试` 约 28px + 两个分隔符约 28px = 前缀约 94px；
+留给主题约 110px，14px 字号下即 **7~8 个中文字** —— 与用户观察一致。
+
+**为什么不能用槽位解决**（已核实）：解析 ui-conversation 的面包屑渲染代码
+
+```js
+const lineage = last || summary.subagent;
+lineage ? (summary.subagent
+  ? renderSlot('conversation.session.header.lineage', owner, { fallback: title })
+  : <>{title}{renderSlot('conversation.session.header.lineage', owner, { fallback: null })}</>)
+  : title
+```
+
+`conversation.session.header.lineage` 的契约是「单个面包屑标题的可选渲染器」（`kind: 'single'`）：
+祖先面包屑不渲染该槽位；子代理面包屑可整体替换标题；**当前会话的 `title` 元素由上游无条件
+原生渲染**，槽位只能作为其后的兄弟节点存在。即**没有任何槽位能改写当前会话标题本身**，
+CSS 覆盖是唯一可行手段。
+
+**为什么必须 `!important`**：属性选择器与上游 `.wSkVaW_crumb` 特异性相同（都是 0,1,0），
+平局按源码顺序决胜，而注入顺序无法保证。
+
+**为什么不会溢出**：`.crumb` 自带 `overflow:hidden`，flex 项的 `min-width:auto` 因此解析为 0，
+宽度不足时会自动收缩并省略，不会挤占同行其他控件。
+
+**失效模式**：选择器依赖 CSS Modules 生成的局部类名后缀 `_crumbCurrent`。上游若重命名该类名，
+规则会**静默失效** —— 不报错、不崩溃，只是标题又变短。排查方法：DevTools 选中标题元素，
+看它 `class` 属性里是否还有 `_crumbCurrent`。
+
+### v0.2.7
+
+按钮改为**图标按钮**（内联四角星 SVG + `title="生成标题"`），不再显示「生成标题」文字，
+目的是与同排的 `...` 等控件观感统一（约 36px vs 约 68px）。
+
+> 修正：v0.2.7 当时认为图标按钮「能还给标题 30 多像素」，**这个结论是错的**。
+> 标题宽度由上游 `.crumb` 的 `max-width:220px` 决定，只要可用宽度 ≥ 220px，
+> 头部控件宽窄完全不影响标题，多出来的空间只会留在 `.titleCluster` 里。
+> 真正的宽度问题由 v0.2.8 的 CSS 覆盖解决。
 
 ### v0.2.6
 

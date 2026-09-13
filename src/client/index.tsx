@@ -16,10 +16,11 @@ export const name = 'dsh-session-title-pattern';
 /**
  * 会话头部右侧的工具区。cardinality 为 list，注册新 id 即增量追加，不会覆盖内置项。
  *
- * 为什么是图标而不是文字按钮：头部三组右侧容器（actions / utilities / corner）
- * 都是 `flex:none`，而标题所在的 `.titleCluster` 是 `flex:1` —— 标题吃的是
- * 「剩余宽度」。也就是说我们在这里多宽，标题就少多宽。文字按钮约 68px，
- * 图标按钮约 36px，能还给标题 30 多像素。
+ * 用图标而不是文字按钮，是为了和同排的 `...` 等控件观感统一（约 36px vs 约 68px）。
+ *
+ * 注意：这**不会**让标题变宽。标题宽度由上游 `.crumb` 的 `max-width:220px` 决定，
+ * 只要可用宽度大于 220px，头部控件宽窄就完全不影响标题 —— 多出来的空间只会留在
+ * `.titleCluster` 里。标题本身的宽度问题由 installCrumbWidth() 处理。
  */
 const SLOT = 'conversation.session.header.utilities';
 
@@ -31,6 +32,20 @@ const RETITLE_LINE = '/retitle';
 
 /** 浏览器控制台前缀，便于排查。 */
 const LOG = '[dsh-session-title-pattern]';
+
+/** 注入的样式元素 id。带 id 是为了判重，保证重复激活不会叠加规则。 */
+const CRUMB_STYLE_ID = 'dsh-session-title-pattern-crumb-width';
+
+/**
+ * 当前会话标题（面包屑最后一段）的宽度上限。
+ *
+ * 上游 `.crumb` 把宽度写死成 `max-width:220px`，减掉左右内边距 16px 只剩 204px；
+ * 我们的标题前缀「日期｜类型」就吃掉约 94px，留给主题的只有约 110px ——
+ * 14px 字号下即七八个中文字，这就是「窗口很大标题却很短」的原因。
+ *
+ * 这里按标题上限 80 字节（约 40 个中文，约 560px）留足余量，再用 60vw 兜住窄窗口。
+ */
+const CRUMB_MAX_WIDTH = 'min(640px, 60vw)';
 
 type RemoteCommands = Context['remote']['commands'];
 
@@ -75,7 +90,47 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
   );
 }
 
+/**
+ * 放宽当前会话标题的宽度上限。
+ *
+ * 为什么只能用 CSS 覆盖：会话标题是头部面包屑的最后一段，上游对它只有
+ * `.crumb{max-width:220px}` 这一条宽度约束，而且没有任何槽位能改写它 ——
+ * `conversation.session.header.lineage` 的契约是「面包屑标题的可选渲染器」，
+ * 但**当前会话的 title 元素由上游无条件原生渲染**，槽位只能作为它后面的兄弟节点。
+ *
+ * 为什么必须 `!important`：属性选择器与上游 `.wSkVaW_crumb` 特异性相同（都是 0,1,0），
+ * 平局按源码顺序决胜，而我们的注入顺序无法保证。
+ *
+ * 为什么只匹配 `_crumbCurrent`：它只命中最后一个面包屑，即当前会话标题；
+ * 祖先会话与子代理的面包屑（只有 `_crumb`）保持 220px，不挤占同一行空间。
+ * 宽度不足时也不会溢出 —— `.crumb` 自带 `overflow:hidden`，flex 项的
+ * `min-width:auto` 因此解析为 0，会自动收缩并省略。
+ *
+ * 失效模式：选择器依赖 CSS Modules 生成的局部类名后缀 `_crumbCurrent`。
+ * 上游若重命名该类名，本规则会**静默失效**（不报错、不崩溃，只是标题又变短）。
+ * 排查方法：DevTools 选中标题元素，看它 class 属性里是否还有 `_crumbCurrent`。
+ */
+function installCrumbWidth(): void {
+  if (typeof document === 'undefined') return;
+  // 幂等：插件重复激活时不叠加第二条规则。
+  if (document.getElementById(CRUMB_STYLE_ID) !== null) return;
+
+  const style = document.createElement('style');
+  style.id = CRUMB_STYLE_ID;
+  style.textContent = `[class*="_crumbCurrent"]{max-width:${CRUMB_MAX_WIDTH} !important;}`;
+  document.head.append(style);
+}
+
 export function apply(ctx: Context): void {
+  // 放宽会话标题宽度上限。纯样式改动，与后面的槽位注册互不依赖，
+  // 放在最前面是为了尽早注入，避免标题先按 220px 渲染再跳变。
+  ctx.effect(() => {
+    installCrumbWidth();
+    return () => {
+      if (typeof document !== 'undefined') document.getElementById(CRUMB_STYLE_ID)?.remove();
+    };
+  });
+
   // remote 命名空间的挂载可能晚于 slot 注册，所以不能提前闭包捕获 ——
   // 提前捕获会拿到 undefined，表现为「按钮在但点了没反应」。
   let commands: RemoteCommands | undefined;
