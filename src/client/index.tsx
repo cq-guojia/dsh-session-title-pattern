@@ -68,8 +68,13 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   generate: () => void;
 };
 
-/** 悬浮提示与无障碍标签共用的文案。 */
-const ACTION_LABEL = '生成标题';
+/**
+ * 悬浮提示与无障碍标签共用的文案。
+ *
+ * 气泡不占布局空间，所以这里写全一点，把「按什么生成、会覆盖当前标题」讲清楚。
+ * 不用「自动生成」——本按钮是手动触发，写「自动」会让人以为它自己会跑。
+ */
+const ACTION_LABEL = '根据对话重新生成标题';
 
 function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。

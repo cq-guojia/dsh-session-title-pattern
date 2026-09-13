@@ -213,7 +213,7 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
   ctx.effect(() =>
     ctx.commands.register({
       name: RETITLE_COMMAND,
-      description: '生成标题',
+      description: '根据对话重新生成标题',
       // 命令不接受输入，没必要在会话日志里重复记一条空输入。
       recordInput: false,
       handler: async ({ agent, signal }) => {
