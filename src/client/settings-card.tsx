@@ -187,7 +187,7 @@ const FIELDS: readonly FieldDesc[] = [
   {
     field: 'maxOutputTokens',
     label: '输出标题最大Token',
-    hint: '单位是 token，64 大致相当于 100 个汉字。标题只占一行，这一项只是防止模型啰嗦，一般不用改',
+    hint: '单位是 token，64 大致相当于 100 个汉字。这一项只是防止模型啰嗦，一般不用改。',
     spec: numberField,
     modelOnly: true,
   },
@@ -494,22 +494,31 @@ export function SettingsCard({
       ? (directory.routes.find((route) => route.provider === pairProvider)?.models ?? [])
       : undefined;
   const pairModel = modelDesc === undefined ? '' : draftText(modelDesc);
+  /**
+   * 具体模型的实际取值。
+   *
+   * **已经存过的模型原样保留**（哪怕当前列表里没有它）——绝不静默替换用户选过的值，
+   * 否则卡片一打开就会挂着「未保存」，而用户什么都没动过。只在**值为空**时才自动落到第一个。
+   */
   const pairModelResolved =
-    pairModels === undefined || pairModels.some((entry) => entry.id === pairModel)
-      ? pairModel
-      : (pairModels[0]?.id ?? '');
-  /** 厂家已选、但这家一个模型都没有：无从选起，保存也过不去。 */
-  const pairBlocked = pairModels !== undefined && pairProvider !== '' && pairModels.length === 0;
+    pairModels === undefined || pairModel !== '' ? pairModel : (pairModels[0]?.id ?? '');
+  /** 厂家已选、这家没有任何模型、而且手上也没有存过的值：无从选起，保存也过不去。 */
+  const pairBlocked =
+    pairModels !== undefined && pairProvider !== '' && pairModels.length === 0 && pairModel === '';
 
   useEffect(() => {
-    // 保证「界面上看到的」永远等于「保存后会写进去的」：
-    // - 厂家为空（跟随对话模型）时具体模型必须一起清掉，否则两端不成对，host 会拒绝写入
-    // - 厂家已选而模型为空/不属于这家时，自动落到第一个
+    // 只在「必须补的值」上兜底，绝不改写已经存过的值：
+    // - 厂家为空（跟随对话模型）时具体模型要一起清掉，否则两端不成对、host 会拒绝写入
+    // - 厂家已选但**模型为空**时，补上列表里的第一个（用户要求「必须选一个、不给留空」）
+    //
+    // 刻意**不**处理「已存的值不在当前列表里」——那种情况顺手换成第一个，会造成
+    // 「打开卡片什么都没动却显示未保存」。那种值原样显示（下面给一个「不在已配置列表」
+    // 的选项），让用户自己决定换不换。
     if (pairProvider === '') {
       if (pairModel !== '') setDrafts((previous) => ({ ...previous, provider: '', model: '' }));
       return;
     }
-    if (pairModelResolved === '' || pairModelResolved === pairModel) return;
+    if (pairModel !== '' || pairModelResolved === '') return;
     setDrafts((previous) => ({ ...previous, provider: pairProvider, model: pairModelResolved }));
   }, [pairProvider, pairModel, pairModelResolved]);
 
@@ -629,6 +638,7 @@ export function SettingsCard({
     const model = pairModelResolved;
     const models = pairModels ?? [];
     const providerKnown = routes?.some((route) => route.provider === provider) ?? true;
+    const modelKnown = models.some((entry) => entry.id === model);
     // 跟随对话模型时第二个框没有意义；这家一个模型都没有时也无从选起。
     const following = provider === '';
     const overridden = isOverridden(providerDesc) || isOverridden(modelDesc);
@@ -711,6 +721,10 @@ export function SettingsCard({
                     {entry.name ?? entry.id}
                   </option>
                 ))}
+                {/* 存过的模型不在当前列表里：原样保留，别静默替换掉用户的选择。 */}
+                {model !== '' && !modelKnown ? (
+                  <option value={model}>{`${model}（不在已配置列表）`}</option>
+                ) : null}
               </select>
             </>
           )}
