@@ -11,9 +11,38 @@
 
 ---
 
-## 当前版本：v0.5.11
+## 当前版本：v0.5.12
 
-### v0.5.11（本次）
+### v0.5.12（本次）
+
+**修正 v0.5.11 的错误归因。** v0.5.11 把「更新失败」归到 pnpm v11 的构建许可上并写进了 README，
+**那是错的**。实机日志给出的证据链：
+
+- 最后一次成功更新是 **07:05 UTC**（commit `5b4da54` = v0.5.7），从 07:16 起每次更新都失败
+- **v0.5.8 只改了客户端代码与文档，`package.json` 只动了版本号** —— 依赖、脚本一字未改。
+  若真是「这个包的构建要被批准」，v0.5.7 就该同样被拦，可它装得好好的
+- 同一时刻的系统日志里有
+  `fatal: unable to access 'https://github.com/...': gnutls_handshake() failed:
+  The TLS connection was non-properly terminated.`
+- `pnpm approve-builds` 输出 **There are no packages awaiting approval**，
+  且 `allowBuilds` 里**根本没有本插件的条目**（真有构建脚本的包会被 pnpm 自动写入占位条目）
+- 网络恢复后，**同样的更新一次就成功**
+
+结论：**病因是这台机器到 GitHub 的链路不稳** —— `github:` 安装要从 `codeload.github.com`
+下 tarball。dsh 那段 `allowBuilds` 文案是它对「pnpm 失败」的**通用提示**，不是病因，
+照着它改白折腾了一轮。
+
+改动：
+
+1. README 那一节改写为「**更新失败怎么办（先查网络）**」：第一步用 `curl` 与
+   `git ls-remote` 验证链路，第二步才谈构建许可，并写清「待批准列表为空 = 不是这里的问题」
+2. 顺手补回被 v0.5.11 误删的 `### 关于版本锁定（重要）` 小标题
+3. 补一条：GitHub 长期不稳时，从 registry（国内镜像）安装会明显更稳
+
+> 顺带排除掉另一个猜测：`minimumReleaseAge`（最小发布年龄，默认 1440 分钟）也不是原因 ——
+> 04:13 至 07:05 的 11 次成功更新全是「刚推完提交就装」，若真有一天的时间闸，那些都会失败。
+
+### v0.5.11
 
 **只加文档**：README 新增「更新时报『pnpm 阻止了构建脚本』怎么办」。
 

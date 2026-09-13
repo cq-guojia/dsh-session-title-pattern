@@ -25,42 +25,51 @@ dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
 
 安装后**无需任何额外配置**。
 
-### 更新时报「pnpm 阻止了构建脚本」怎么办
+### 更新失败怎么办（**先查网络**）
 
-装好之后点「更新」可能失败，提示：
+更新失败时 dsh 会附一段说明，提到 `pnpm failed` 与 `allowBuilds`。
+**但那段是它对「pnpm 失败」的通用提示，未必是本次病因** —— 实测踩到的一次完全是网络问题，
+照着那个提示去改 `allowBuilds` 白折腾了一轮。所以按下面的顺序排查：
 
+**第一步：能不能连上 GitHub。** 本插件是 `github:` 装的，pnpm 要从
+`codeload.github.com` 下 tarball：
+
+```bash
+curl -sI -m 15 https://codeload.github.com/cq-guojia/dsh-session-title-pattern/tar.gz/HEAD | head -3
+git ls-remote https://github.com/cq-guojia/dsh-session-title-pattern.git HEAD
 ```
-dsh: pnpm failed in profile directory ~/.dsh/profiles/web
-dsh: git-hosted plugins build on install via their prepare script, which pnpm blocks
-     until allowed — add the exact key pnpm printed above under allowBuilds ...
+
+拿不到 `HTTP/2 200`、或 `git ls-remote` 报 TLS 错（`gnutls_handshake() failed`）
+→ **就是网络问题，等一会儿重试即可**，与插件无关。国内网络访问 GitHub 不稳是常态。
+
+**第二步：网络正常却仍然失败**，才轮到 pnpm 的构建许可。先确认被拦的到底是谁：
+
+```bash
+cd ~/.dsh/profiles/<profile> && pnpm approve-builds    # 列出「待批准构建」的包
 ```
 
-这是 **pnpm v11 的策略**，与本插件改了什么无关：
+列出来的**不是**本插件（更常见的是构建工具链之类的传递依赖），那就不是这里的问题。
+**列表为空**更是明确的信号：pnpm 并不认为有东西被拦，病因在别处。
 
-- v11 默认不执行任何依赖的构建脚本；未列进 `allowBuilds` 时安装以
-  `ERR_PNPM_IGNORED_BUILDS` 失败
-- **git 托管的包不能用包名批准** —— 名字不足以标识产物，必须用 git 地址（或精确到 commit）
-- `allowBuilds` 在 `pnpm-workspace.yaml` 里是 **map（包 → `true`/`false`）**，
-  而不是 v10 那种数组式的 `onlyBuiltDependencies`（v11 已移除它）
-
-**怎么修**：pnpm 通常**已经把这一条写进 profile 的 `pnpm-workspace.yaml` 了**，
-只是值是占位符 —— 打开 `~/.dsh/profiles/<profile>/pnpm-workspace.yaml`，
-把这一条的值改成 `true`，再重新执行更新。若里面没有，就在该目录下执行
-`pnpm approve-builds` 交互式批准（它会写入格式正确的键）。
-
-要手写的话，键是**包名 + git 地址**（不带 `#ref`；同一仓库的 `git+ssh://` 与
-`git+https://` 是两个不同的键，必须与安装时用的地址一致）：
+确实是我们的话，再按 pnpm v11 的格式加白名单：
 
 ```yaml
 allowBuilds:
+  # 键必须用 git 地址 —— 只写包名对 git 托管包无效；@ 开头的键要加引号
   '@cq-guojia/dsh-session-title-pattern@git+https://github.com/cq-guojia/dsh-session-title-pattern.git': true
 ```
 
-> 顺带说明：本插件的产物 `lib/` **已经提交在仓库里**，安装时并不需要真的编译 ——
-> 这道许可来自 pnpm 对「git 托管包」的一刀切策略。profile 用 pnpm v10 的话不存在这个问题。
+> `allowBuilds` 是 pnpm **v11** 的设置，形状是 map（不是 v10 那种数组式的
+> `onlyBuiltDependencies`，后者 v11 已移除）。另外本插件的产物 `lib/` **已提交在仓库里**，
+> 安装时并不需要编译 —— 它本来就不该出现在待批准列表里。
 
-> 更新失败后 profile 可能停在「旧版本已卸掉、新版本没装上」的中间状态。
-> 修好许可后再 `add` 一次即可；重启前先确认 `dsh` 还能正常起来。
+> 更新失败后 profile 可能停在「旧版本已卸掉、新版本没装上」的中间状态；
+> 网络恢复后再 `add` 一次即可，重启前先确认 `dsh` 还能起来。
+
+> **网络长期不稳的话**：`github:` 安装每次都要出海访问 `codeload.github.com`。若该 profile 的
+> npm 源是国内镜像（如 `registry.npmmirror.com`），从 registry 安装会明显更稳。
+
+### 关于版本锁定（重要）
 
 git 安装有两种写法，行为差别很大：
 
