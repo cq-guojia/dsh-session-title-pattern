@@ -11,9 +11,36 @@
 
 ---
 
-## 当前版本：v0.5.23
+## 当前版本：v0.5.24
 
-### v0.5.23（本次）
+### v0.5.24（本次，紧急修复）
+
+**v0.5.23 会让 dsh 起不来，本次修复。** 用户实机确认：禁用本插件 dsh 正常、启用后连
+界面都进不了。容器日志抓到根因：
+
+```
+Error: dsh: plugin tree failed to load: failed to apply loader entry session-title-pattern:
+  cannot get property "commands" without inject
+    at registerTitleEditCommands
+```
+
+根因：v0.5.23 新加的 `registerTitleEditCommands(ctx, …)` 在 **apply 里拿原始 ctx 直接访问
+`ctx.commands`**。cordis 的 Context 是受保护代理，未声明的服务属性一访问就同步抛错，
+apply 一抛 → 插件 fiber 失败 → **整个 dsh 启动失败** → 容器反复重启。
+
+讽刺的是我们自己的注释里早就写了这条禁忌（「也不能直接写 ctx.llm —— 受保护代理」），
+`/retitle` 也一直用正确写法（在 `ctx.inject(['commands'], (commandCtx) => …)` 里注册），
+新代码偏偏没照抄。
+
+**修复**：把 `registerTitleEditCommands` 挪进与 `/retitle` 同一条
+`ctx.inject(['commands'], …)` 里，用 inject 给回的 commandCtx 注册。
+并全文扫描了其余 `ctx.*` 服务访问点：handler/事件回调里访问 `sessionTitle`、
+inject 内访问 `commands` 都是有实跑记录的安全模式。
+
+> 教训：本项目里每新增一个「ctx.服务」访问点，都必须落在某条 `ctx.inject([…], …)`
+> 的作用域内，或至少与一个已在实机跑通过的写法逐字对齐。仅靠类型检查查不出这类错误。
+
+### v0.5.23
 
 四件一起落地：**标题面板（锁定 / 改名）**、**主线改写高门槛**、**等距采样**、**重启恢复**。
 

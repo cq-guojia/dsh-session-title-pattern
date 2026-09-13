@@ -484,12 +484,17 @@ export function apply(ctx: Context, config: Config): void {
 
   // 不按「当时的模式」决定要不要挂订阅：模式可以在设置里随时切换。
   trackRecomputes(ctx, currentConfig, states);
-  registerTitleEditCommands(ctx, currentConfig);
 
   // commands 由 dsh-base 提供，但绝不能写进 inject 声明：组合里一旦没有命令服务，
   // 声明式依赖会让本 entry 永远 pending，而 pending 的 entry 会让 dsh 启动失败。
   // 用 ctx.inject 延迟等待：它没出现就只是没有 /retitle，自动生成标题照常工作。
+  //
+  // **注册必须走 inject 给回的 commandCtx**：apply 收到的 ctx 是受保护代理，
+  // 未声明就访问 ctx.commands 会同步抛 `cannot get property "commands" without
+  // inject`，apply 一抛整个 dsh 都起不来（v0.5.23 的实际事故）。/retitle 一直是
+  // 这个写法所以没事，两个新命令照抄它。
   ctx.inject(['commands'], (commandCtx) => {
     registerRetitleCommand(commandCtx, states);
+    registerTitleEditCommands(commandCtx, currentConfig);
   });
 }
