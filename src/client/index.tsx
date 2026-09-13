@@ -10,7 +10,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 // 官方基础组件与图标。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致 ——
 // 图标集有 49 个 `IconXxx16`，侧边栏开关等内置按钮用的就是同一套。
-import { Button, IconRefreshOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, IconEditOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -83,7 +83,7 @@ function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
         <Button
           variant="ghost"
           size="sm"
-          icon={<IconRefreshOutline16 size={16} />}
+          icon={<IconEditOutline16 size={16} />}
           disabled={running}
           onClick={generate}
           // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。

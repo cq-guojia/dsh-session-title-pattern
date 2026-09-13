@@ -11,9 +11,61 @@
 
 ---
 
-## 当前版本：v0.2.9
+## 当前版本：v0.3.0
 
-### v0.2.9（本次）
+### v0.3.0（本次）
+
+接入大模型：类型与主题改为模型对**整段对话**的总结，首条消息先生成一次，之后每 N 轮滚动重算。
+
+**用户需求**：分类交给模型总结（两个汉字，可给示例但不硬性约束）；标题要成为对整段对话的
+总结而非首条消息前几个字；首条消息先生成，之后每 5 轮重算；必须控制 token（不能把全部对话
+都发一遍）；提供"每 5 轮 / 每 10 轮"这类配置项。本轮先实现功能，配置面板押后。
+
+**四项决策**：默认开启 LLM 且可关；独立调用 + 滚动摘要；模型可配置、留空跟随主模型；
+失败保留上一次标题。
+
+**为什么不做「把任务偷偷塞给下一轮对话」**：dsh 的主对话请求由 agent loop 构建，传给
+`llm/stream` 时深度冻结只读，第三方插件无法注入隐藏轮次；`GenerateOptions.purpose` 也是
+封闭枚举（只有 `compaction` / `session-title`）。唯一能贴近该设想的是注册工具让主模型顺带
+调用，但工具定义与提示说明会随每轮主请求一起发给模型，token 随轮数线性增长，按 N=5 估算
+比滚动摘要更贵，故弃用。
+
+**成本模型**：每次重算只发固定三段 —— ① 首条消息（截断 200 字节）② 上次摘要（一行）
+③ 上次之后的新增人类消息。② 就是模型上一次的输出本身，不是额外生成的东西。输入大小与
+会话总长度无关：每 5 轮约 300 token 输入 + ≤64 token 输出，100 轮也就三四万 token。
+
+**实现要点**：
+- `automatic` 保持 `first-prompt`：首条消息由服务自动调度；之后的重算由本插件订阅
+  `session/event` 数轮次，每满 `retitleEvery` 条显式调 `ctx.sessionTitle.refresh()`。
+  这样非重算轮根本不会被调用，也不会写重复的 `session/title` 事件
+  （改成 `all-prompts` 会每轮写一条重复标题事件）
+- 模型调用照官方 `session-title-llm` 范式：`ctx.llm.stream` + `BlockAssembler` +
+  `deadline(request.signal, timeoutMs, 'SESSION_TITLE_TIMEOUT')`，`purpose: 'session-title'`
+- 输入用 JSON 承载（防注入，官方同做法）；超预算时从**最旧**的新增消息开始丢
+- 输出解析容错：多行只取首行、剥编号/引号/反引号、兼容全角竖线；类型缺失时回退规则分类
+- **降级**：provider 抛错即可 —— 服务的 `runProvider` 只在成功后 `append('session/title')`，
+  抛错天然保留旧标题（已读 `dsh-session-title/lib/index.js` 确认）；轮次仍推进，
+  避免失败后每轮重试
+- **只处理顶层会话**：`session.header.parentSession !== undefined` 直接跳过，否则每次
+  fork（子代理）都要多付一次模型调用
+- 内存有界：每会话只留一行摘要 + 两个计数，`Map` 上限 64 个会话，按插入序淘汰
+- 手动 `/retitle` 会重置滚动状态，让这次尽量基于全部对话重来
+
+**新增依赖**：`@deepseek-ai/dsh-llm`、`@deepseek-ai/dsh-timeout`（peer + dev，均为 0.1.5-rc.2）；
+tsconfig 的 `lib` 增加 `ESNext.Disposable`（`deadline` 的 `[Symbol.dispose]`）。
+字节计算用 `TextEncoder` 而非 `Buffer.byteLength`，避免为 `types: []` 引入 `@types/node`。
+
+**新增文件**：`src/host/rules.ts`（规则模式与标题拼装，供 LLM 模式复用）、
+`src/host/llm.ts`（提示组装、模型调用、输出解析、路由解析）。
+
+**顺带**：客户端按钮图标由 `IconRefreshOutline16` 换成 `IconEditOutline16`（铅笔）。
+
+**已用临时脚本验证**（跑完即删）：`parseTitleLine` 的 6 种输入、`buildPromptInput` 的
+首轮/第 5 轮/极小预算、`composeTitle` 的字节安全截断与空主题分支。
+
+**未做（下一轮）**：配置面板（settings card）、分类规则重构、单测。
+
+### v0.2.9
 
 「生成标题」按钮三项改造：
 
