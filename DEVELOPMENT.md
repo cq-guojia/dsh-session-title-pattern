@@ -11,9 +11,28 @@
 
 ---
 
-## 当前版本：v0.2.8
+## 当前版本：v0.2.9
 
-### v0.2.8（本次）
+### v0.2.9（本次）
+
+「生成标题」按钮三项改造：
+
+1. **图标**换成官方 `IconRefreshOutline16`。原来是我手绘的四角星内联 SVG，16px 下会被
+   误认成加号。primitives 其实自带 49 个官方 `IconXxx16`（侧边栏开关等内置按钮用的就是
+   同一套），手绘属于重复造轮子，已删除。
+2. **位置**从 `conversation.session.header.utilities` 挪到 `conversation.session.header.actions`，
+   `order` 由 `100` 改为常量 `ACTION_ORDER = -1000`。依据：上游头部结构是
+   `titleCluster > (crumbs, headerActions)`，该组紧贴标题；同区内按 order 升序排列，
+   取足够小的负数即可成为**标题右边第一个**，「标准模式」落在其右侧，其他插件后挂的
+   条目也都在右边。
+3. **悬浮提示**改用官方 `Tooltip`（`label` / `side: 'bottom'` / `delayMs: 500`），与内置按钮
+   同款。注意 `Button` 是普通函数组件、**不转发 ref**，不能直接当 Tooltip 的锚点，因此套了
+   一层 `span`（`display:inline-flex`）当中介。禁用态额外挂原生 `title` —— 禁用的原生表单
+   控件不派发鼠标事件，Tooltip 不会出现。
+
+顺带清掉：手绘 SVG 常量、以及那条「ui-primitives 没有通用图标集」的错误注释。
+
+### v0.2.8
 
 解除会话标题的宽度硬上限。客户端激活时自动注入：
 

@@ -7,22 +7,31 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client';
 // ctx.slots 服务的类型增强在 renderer 包里，不在 slots 包里。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-// 官方基础组件。它在模块表（PLATFORM_MODULES）里，所以可以正常按 external 引入，
-// 不会被内联、也不会触发纯度闸门。用它是为了让按钮与头部其它控件风格一致。
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
+// 官方基础组件与图标。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
+// 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致 ——
+// 图标集有 49 个 `IconXxx16`，侧边栏开关等内置按钮用的就是同一套。
+import { Button, IconRefreshOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 
 export const name = 'dsh-session-title-pattern';
 
 /**
- * 会话头部右侧的工具区。cardinality 为 list，注册新 id 即增量追加，不会覆盖内置项。
+ * 会话头部的动作区。cardinality 为 list，注册新 id 即增量追加，不会覆盖内置项。
  *
- * 用图标而不是文字按钮，是为了和同排的 `...` 等控件观感统一（约 36px vs 约 68px）。
+ * 位置依据：上游的头部结构是 `titleCluster > (crumbs, headerActions)`，
+ * 即这一组**紧贴标题之后**，截图里那个「标准模式」指示器就是本槽位的占用者。
  *
- * 注意：这**不会**让标题变宽。标题宽度由上游 `.crumb` 的 `max-width:220px` 决定，
- * 只要可用宽度大于 220px，头部控件宽窄就完全不影响标题 —— 多出来的空间只会留在
- * `.titleCluster` 里。标题本身的宽度问题由 installCrumbWidth() 处理。
+ * 注意：这里**不会**影响标题宽度。标题宽度由上游 `.crumb` 的 `max-width` 决定
+ * （已由 installCrumbWidth() 放宽），只要可用宽度够，头部控件宽窄就与标题无关。
  */
-const SLOT = 'conversation.session.header.utilities';
+const SLOT = 'conversation.session.header.actions';
+
+/**
+ * 同区内按 order 升序排列（越小越靠左）。
+ *
+ * 取一个足够小的负数，保证排在所有占用者之前 —— 即**标题右边第一个**，
+ * 内置的「标准模式」落在我们右侧；其他插件后挂的条目同样排在我们右边。
+ */
+const ACTION_ORDER = -1000;
 
 /** 本菜单项在列表中的地址，必须全局唯一。 */
 const ENTRY_ID = 'generate-title';
@@ -59,34 +68,31 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   generate: () => void;
 };
 
-/**
- * 四个尖角的星形，表示「生成」。
- *
- * 必须内联：`ui-primitives` 只导出文件/链接/引用类图标，没有通用图标集。
- */
-const SparkleIcon = (
-  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-    <path
-      d="M8 1.8 9.35 5.6 13.2 6.95 9.35 8.3 8 12.1 6.65 8.3 2.8 6.95 6.65 5.6Z"
-      fill="currentColor"
-    />
-  </svg>
-);
+/** 悬浮提示与无障碍标签共用的文案。 */
+const ACTION_LABEL = '生成标题';
 
 function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。
   const running = useSession((snapshot) => snapshot.running);
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      icon={SparkleIcon}
-      disabled={running}
-      onClick={generate}
-      // 图标按钮没有可见文字，标题与无障碍标签都要给。
-      title="生成标题"
-      aria-label="生成标题"
-    />
+    // 用官方 Tooltip，与侧边栏开关等内置按钮同款。
+    // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，而 Button 是普通函数
+    // 组件、不转发 ref，直接套会定位不到气泡。
+    <Tooltip label={ACTION_LABEL} side="bottom" delayMs={500}>
+      <span style={{ display: 'inline-flex' }}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<IconRefreshOutline16 size={16} />}
+          disabled={running}
+          onClick={generate}
+          // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
+          title={running ? '会话回复中，暂不能重新生成标题' : undefined}
+          // 图标按钮没有可见文字，无障碍标签必须给。
+          aria-label={ACTION_LABEL}
+        />
+      </span>
+    </Tooltip>
   );
 }
 
@@ -145,8 +151,7 @@ export function apply(ctx: Context): void {
         {
           name: SLOT,
           id: ENTRY_ID,
-          // 同区内按 order 升序排列，取正值排在内置工具之后（更靠右）。
-          order: 100,
+          order: ACTION_ORDER,
           // factory 在 apply 世界中运行；session scope 的 slot 会收到框架
           // 解析出的 sessionId。
           inject: (sessionId) => ({
