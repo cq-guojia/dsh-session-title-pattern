@@ -31,6 +31,23 @@ export interface PluginConfig {
   maxBytes?: number;
 }
 
+/**
+ * host 侧 Config 的默认值，客户端留一份镜像。
+ *
+ * 只在快照的 `base` 层拿不到某字段时兜底 —— `base` 是「清空该字段后会回落到的值」，
+ * 正常情况下它就是我们要显示给用户的默认值。
+ */
+const FALLBACK_DEFAULTS: Record<string, unknown> = {
+  mode: 'llm',
+  retitleEvery: 5,
+  provider: '',
+  model: '',
+  timeoutMs: 15_000,
+  maxOutputTokens: 64,
+  separator: '｜',
+  maxBytes: 80,
+};
+
 /** `llm` 远端命名空间里我们用到的方法（结构化声明，不引它的类型入口）。 */
 export interface LlmDirectory {
   listProviders: () => Promise<{
@@ -122,18 +139,15 @@ const modeField: FieldSpec = {
   parse: (text) => ({ kind: 'set', value: text === 'rules' ? 'rules' : 'llm' }),
 };
 
-type GroupKey = 'top' | 'model' | 'format';
-
 interface FieldDesc {
   field: keyof PluginConfig & string;
   label: string;
   hint?: string;
   spec: FieldSpec;
-  group: GroupKey;
 }
 
 /**
- * 卡片暴露的 8 项。
+ * 卡片暴露的 8 项。全部一次展开，不再做二级折叠 —— 一共没几个输入项。
  *
  * `maxInputBytes`（滚动摘要的字节预算）刻意不放出来：它是内部预算，
  * 调整它只会影响成本，需要时走 `cordis.patch.yml`。
@@ -144,38 +158,19 @@ const FIELDS: readonly FieldDesc[] = [
     label: '用模型总结标题',
     hint: '关闭后回到关键词规则分类，不再消耗 token',
     spec: modeField,
-    group: 'top',
   },
-  {
-    field: 'retitleEvery',
-    label: '重算间隔',
-    hint: '每多少条人类消息重新总结一次标题（条）',
-    spec: numberField,
-    group: 'top',
-  },
-  {
-    field: 'provider',
-    label: '服务商 provider',
-    hint: '只列出已配置且可用的供应商；留空则跟随会话主模型',
-    spec: textField,
-    group: 'model',
-  },
-  { field: 'model', label: '模型 model', spec: textField, group: 'model' },
-  { field: 'timeoutMs', label: '超时', hint: '单次模型调用超时（毫秒）', spec: numberField, group: 'model' },
-  { field: 'maxOutputTokens', label: '输出上限', hint: '单次调用输出 token 上限', spec: numberField, group: 'model' },
-  { field: 'separator', label: '分隔符', hint: '标题各段之间的分隔符', spec: textField, group: 'format' },
+  { field: 'retitleEvery', label: '重算间隔', hint: '每多少条人类消息重新总结一次标题（条）', spec: numberField },
+  { field: 'provider', label: '服务商 provider', spec: textField },
+  { field: 'model', label: '模型 model', spec: textField },
+  { field: 'timeoutMs', label: '超时', hint: '单次模型调用超时（毫秒）', spec: numberField },
+  { field: 'maxOutputTokens', label: '输出上限', hint: '单次调用输出 token 上限', spec: numberField },
+  { field: 'separator', label: '分隔符', hint: '标题各段之间的分隔符', spec: textField },
   {
     field: 'maxBytes',
     label: '标题长度上限',
     hint: '单位字节，必须 ≤ session-title 的 maxTitleBytes（dsh-base 默认 80）',
     spec: numberField,
-    group: 'format',
   },
-];
-
-const COLLAPSIBLE_GROUPS: readonly { key: GroupKey; label: string }[] = [
-  { key: 'model', label: '模型' },
-  { key: 'format', label: '标题格式' },
 ];
 
 const ChevronIcon = (
@@ -193,6 +188,18 @@ const ChevronIcon = (
 
 function hasKey(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/** 这两个字段都是标量，用严格相等即可；留 JSON 比较兜底以防将来出现对象。 */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  if (typeof left !== 'object' || typeof right !== 'object') return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
 }
 
 /** 沿路径走进一层层的对象；任何一步对不上就返回 undefined。 */
@@ -267,15 +274,9 @@ function parseConfiguredRefs(raw: unknown): ReadonlySet<string> | undefined {
 /**
  * 组装「供应商 → 已配置模型」目录，**只保留用户真正配好的供应商**。
  *
- * 这是这次最关键的一处：`listProviders()` 返回的是适配器注册的**全部内置供应商**，
- * 直接罗列会出现一大堆用户根本没配、用不了的模型。所以再加两道闸：
- *
- *   1. 该路由必须**已注册**（active）；
- *   2. 该 provider 的 profile 要么在**用户层**被写过、要么它引用的**凭据已配置**。
- *
- * 第 2 条与官方模型页 `providerUsable` 的口径一致（我们更严一档：官方对「profile 未命名
- * 任何凭据」的路由直接放行，那是给 Bedrock/Vertex 这类走自身凭据链的场景留的口子，
- * 而这里的目的是「我配了什么就出什么」，所以不放行）。
+ * `listProviders()` 返回的是适配器注册的**全部内置供应商**，直接罗列会出现一大堆
+ * 用户根本没配、用不了的模型。所以再加两道闸：路由必须**已注册**，且该 provider 的
+ * profile 要么在设置文档的**用户层**被写过、要么它引用的凭据**已配置**。
  *
  * 凭据域拿不到时只用用户层判定，并在界面上说明。
  */
@@ -311,12 +312,9 @@ async function loadDirectory(
 
     // 先尽量读一次凭据域：只有它能把「key 存在环境变量里、设置文档没写过」也算进来。
     const refs: string[] = [];
-    const profileOf = new Map<string, { section: unknown; path: readonly string[] }>();
-    for (const [provider, address] of addresses) {
+    for (const address of addresses.values()) {
       if (address.settingsNs === undefined) continue;
-      const view = findView(address.settingsNs);
-      profileOf.set(provider, { section: view?.value, path: address.settingsPath });
-      const ref = readApiKeyRef(view?.value, address.settingsPath);
+      const ref = readApiKeyRef(findView(address.settingsNs)?.value, address.settingsPath);
       if (ref !== undefined) refs.push(ref);
     }
     let configuredRefs: ReadonlySet<string> | undefined;
@@ -338,14 +336,12 @@ async function loadDirectory(
       const userConfigured = walk(view?.user, address.settingsPath) !== undefined;
       const ref = readApiKeyRef(view?.value, address.settingsPath);
       const credentialConfigured = ref !== undefined && configuredRefs?.has(ref) === true;
-
       if (!userConfigured && !credentialConfigured) continue;
 
-      const profile = profileOf.get(provider);
       routes.push({
         provider,
         displayName: address.displayName,
-        models: readModels(profile?.section ?? view?.value, address.settingsPath),
+        models: readModels(view?.value, address.settingsPath),
       });
     }
     routes.sort((left, right) => left.displayName.localeCompare(right.displayName));
@@ -370,8 +366,8 @@ type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
  * 本插件的设置卡片。
  *
  * 结构、类名与样式对齐官方 `PluginCard` + `fields`（见 `settings-css.ts`）：
- * 收起时是灰底卡片，展开后正文落在同一张卡片内、只隔一条细线；字段一律
- * 「标签在上 / 控件整宽在下 / 说明再下一行」，保存与放弃在右下角。
+ * 收起时是灰底卡片，展开后正文落在同一张卡片内、只隔一条细线；普通字段
+ * 「标签在上 / 控件整宽在下 / 说明再下一行」，开关字段「标题与说明在左、开关在右」。
  *
  * 用「暂存 + 保存」而不是改一下就提交：每次写入都是可持久化的、带修订号栅栏的文档变更，
  * 边改边写会把一次输入变成用户没要求、也无法预览的写入（官方 `CardForm` 的同一取舍）。
@@ -392,7 +388,6 @@ export function SettingsCard({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Partial<Record<GroupKey, boolean>>>({});
   const [directory, setDirectory] = useState<DirectoryState>({ status: 'loading' });
 
   useEffect(() => {
@@ -412,18 +407,31 @@ export function SettingsCard({
 
   const section = (snapshot.value ?? {}) as PluginConfig;
   const user = (snapshot.user ?? {}) as Record<string, unknown>;
+  const base = (snapshot.base ?? {}) as Record<string, unknown>;
   const writable = snapshot.writable && !busy;
   const ready = snapshot.status === 'ready';
+
+  /** 一个字段「清空后回落到」的值，也就是界面上该显示的默认值。 */
+  const defaultOf = (field: string): unknown => (base[field] !== undefined ? base[field] : FALLBACK_DEFAULTS[field]);
 
   const draftText = (desc: FieldDesc): string =>
     drafts[desc.field] ?? desc.spec.format(section[desc.field]);
 
-  // 覆盖状态按「键是否存在」判断，而不是比值：一个等于默认值的覆盖仍然是覆盖。
-  // 有暂存草稿时按草稿预演保存后的状态，这样徽标不会与屏幕上的输入自相矛盾。
+  /**
+   * 是否「已覆盖」。
+   *
+   * 与官方「键存在即覆盖」不同：用户要的是「和默认值一样就当没改过」，
+   * 所以这里额外比一次默认值 —— 一个恰好等于默认值的取值不算覆盖。
+   */
   const isOverridden = (desc: FieldDesc): boolean => {
     const draft = drafts[desc.field];
-    if (draft === undefined) return hasKey(user, desc.field);
-    return desc.spec.parse(draft)?.kind === 'set';
+    if (draft !== undefined) {
+      const write = desc.spec.parse(draft);
+      if (write === undefined || write.kind === 'clear') return false;
+      return !sameValue(write.value, defaultOf(desc.field));
+    }
+    if (!hasKey(user, desc.field)) return false;
+    return !sameValue(user[desc.field], defaultOf(desc.field));
   };
 
   const isInvalid = (desc: FieldDesc): boolean => {
@@ -444,6 +452,11 @@ export function SettingsCard({
     setDrafts((previous) => ({ ...previous, ...patch }));
   };
 
+  /** 「恢复默认」：把框里填回默认值，而不是留空。 */
+  const restoreDefault = (desc: FieldDesc): void => {
+    stage(desc.field, desc.spec.format(defaultOf(desc.field)));
+  };
+
   const save = async (): Promise<void> => {
     setBusy(true);
     setFailed(false);
@@ -454,8 +467,14 @@ export function SettingsCard({
         const write = desc.spec.parse(draft);
         // 无效草稿不写：`invalid` 已经禁用了保存按钮，这里只是兜底。
         if (write === undefined) continue;
-        if (write.kind === 'clear') await scope.unset(desc.field);
-        else await scope.set(desc.field, write.value);
+
+        const value = write.kind === 'clear' ? undefined : write.value;
+        // 值等于默认值就不必往用户层记一笔 —— 清掉它，让它继续继承默认。
+        if (value === undefined || sameValue(value, defaultOf(desc.field))) {
+          await scope.unset(desc.field);
+        } else {
+          await scope.set(desc.field, value);
+        }
       }
       setDrafts({});
       // 与官方一致：保存成功后自动收起。
@@ -476,7 +495,6 @@ export function SettingsCard({
    */
   const renderControl = (desc: FieldDesc): React.JSX.Element => {
     const value = draftText(desc);
-    const invalidField = isInvalid(desc);
     const disabled = !writable;
 
     if (directory.status === 'ready') {
@@ -510,12 +528,10 @@ export function SettingsCard({
           <select
             className="stp-input"
             value={value}
-            disabled={disabled || providerValue === ''}
+            disabled={disabled}
             onChange={(event) => stage(desc.field, event.target.value)}
           >
-            <option value="">
-              {providerValue === '' ? '跟随会话主模型' : '该供应商未配模型，跟随其默认'}
-            </option>
+            <option value="">该供应商默认模型</option>
             {models.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name ?? model.id}
@@ -529,13 +545,32 @@ export function SettingsCard({
 
     return (
       <input
-        className={invalidField ? 'stp-input stp-inputInvalid' : 'stp-input'}
+        className={isInvalid(desc) ? 'stp-input stp-inputInvalid' : 'stp-input'}
         value={value}
         disabled={disabled}
         onChange={(event) => stage(desc.field, event.target.value)}
       />
     );
   };
+
+  /** 开关字段：标题与说明在左，开关在右（对齐官方 MCP / Subagent 卡片的开关行）。 */
+  const renderToggle = (desc: FieldDesc): React.JSX.Element => (
+    <div key={desc.field} className="stp-field">
+      <div className="stp-toggleRow">
+        <div className="stp-toggleLabel">
+          <span className="stp-toggleTitle">{desc.label}</span>
+          {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
+        </div>
+        {isOverridden(desc) ? <span className="stp-overridden">已覆盖</span> : null}
+        <Switch
+          checked={draftText(desc) !== 'rules'}
+          disabled={!writable}
+          label={desc.label}
+          onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
+        />
+      </div>
+    </div>
+  );
 
   const renderField = (desc: FieldDesc): React.JSX.Element => {
     const overridden = isOverridden(desc);
@@ -550,28 +585,13 @@ export function SettingsCard({
               type="button"
               className="stp-reset"
               disabled={!writable || !overridden}
-              onClick={() => stage(desc.field, '')}
+              onClick={() => restoreDefault(desc)}
             >
               恢复默认
             </button>
           </span>
         </div>
-        {/* 模式用开关，其余用输入框或下拉。 */}
-        {desc.field === 'mode' ? (
-          <div className="stp-toggleRow">
-            <Switch
-              checked={draftText(desc) !== 'rules'}
-              disabled={!writable}
-              label={desc.label}
-              onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
-            />
-            <span className="stp-toggleText">
-              {draftText(desc) !== 'rules' ? '模型总结' : '关键词规则'}
-            </span>
-          </div>
-        ) : (
-          renderControl(desc)
-        )}
+        {renderControl(desc)}
         {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
         {fieldInvalid ? <p className="stp-invalid">这里需要一个整数</p> : null}
         {desc.field === 'provider' && directory.status === 'unavailable' ? (
@@ -583,29 +603,11 @@ export function SettingsCard({
     );
   };
 
-  const renderGroup = (key: GroupKey): React.JSX.Element => {
-    const isOpen = openGroups[key] === true;
-    const group = COLLAPSIBLE_GROUPS.find((item) => item.key === key);
-    return (
-      <div key={key}>
-        <div className="stp-head" style={{ paddingTop: 12 }}>
-          <span className="stp-label">{group?.label ?? key}</span>
-          <span className="stp-badges">
-            <button
-              type="button"
-              className="stp-reset"
-              onClick={() => setOpenGroups((previous) => ({ ...previous, [key]: !isOpen }))}
-            >
-              {isOpen ? '收起' : '展开'}
-            </button>
-          </span>
-        </div>
-        {isOpen ? <div>{FIELDS.filter((desc) => desc.group === key).map(renderField)}</div> : null}
-      </div>
-    );
-  };
-
   if (!ready) return null;
+
+  const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
+  // 跟随会话主模型时根本没有第二个选择，模型那一行就不出现。
+  const visibleFields = FIELDS.filter((desc) => desc.field !== 'model' || providerValue !== '');
 
   return (
     <li className={expanded ? 'stp-card stp-cardOpen' : 'stp-card'}>
@@ -616,7 +618,8 @@ export function SettingsCard({
         onClick={() => setExpanded((value) => !value)}
       >
         <span className="stp-headText">
-          <span className="stp-name">会话标题</span>
+          {/* 带上插件名，用户才知道这条设置属于哪个插件。 */}
+          <span className="stp-name">会话标题（session-title-pattern）</span>
           <span className="stp-description">用模型总结会话标题的类型与主题，也可以退回关键词规则。</span>
         </span>
         {/* 折叠不影响暂存的改动，所以标题行要标出「有未保存的改动」。 */}
@@ -625,8 +628,7 @@ export function SettingsCard({
       </button>
       {expanded ? (
         <div className="stp-body">
-          {FIELDS.filter((desc) => desc.group === 'top').map(renderField)}
-          {COLLAPSIBLE_GROUPS.map((group) => renderGroup(group.key))}
+          {visibleFields.map((desc) => (desc.field === 'mode' ? renderToggle(desc) : renderField(desc)))}
           <div className="stp-footer">
             {failed ? (
               <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>
@@ -637,13 +639,18 @@ export function SettingsCard({
             <button
               type="button"
               className="stp-discard"
-              disabled={busy || !dirty}
+              disabled={busy}
               onClick={() => {
                 setFailed(false);
-                setDrafts({});
+                // 把所有字段都填回默认值；点保存即一并写回。
+                setDrafts(
+                  Object.fromEntries(
+                    FIELDS.map((desc) => [desc.field, desc.spec.format(defaultOf(desc.field))]),
+                  ),
+                );
               }}
             >
-              放弃修改
+              重置为默认值
             </button>
             <button
               type="button"

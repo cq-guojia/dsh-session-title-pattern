@@ -16,6 +16,9 @@ export const SETTINGS_CSS = `
 .stp-card{border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);border-radius:16px;list-style:none;transition:border-color .16s,background .16s}
 .stp-card:hover{border-color:var(--dsw-alias-label-dimmed)}
 .stp-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}
+/* 首尾字段不要顶到 body 的分隔线上 */
+.stp-body>.stp-field:first-child{padding-top:4px}
+.stp-body>.stp-field:last-of-type{padding-bottom:4px}
 .stp-header{appearance:none;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}
 .stp-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
 .stp-headText{flex-direction:column;flex:1;gap:4px;min-width:0;display:flex}
@@ -42,8 +45,10 @@ export const SETTINGS_CSS = `
 .stp-inputInvalid{border-color:var(--dsw-alias-label-error)}
 .stp-invalid{color:var(--dsw-alias-label-error);margin:0;font-size:12px;line-height:1.5}
 .stp-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}
-.stp-toggleRow{align-items:center;gap:8px;display:flex}
-.stp-toggleText{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+/* ---- 开关行：标题与说明在左，开关在右（照抄官方 SubagentModelSelectionCard 的 .toggleRow） ---- */
+.stp-toggleRow{color:var(--dsw-alias-label-primary);justify-content:space-between;align-items:center;gap:16px;font-size:13px;line-height:1.5;display:flex}
+.stp-toggleLabel{flex:1;min-width:0;flex-direction:column;gap:2px;display:flex}
+.stp-toggleTitle{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}
 /* ---- 底部：右对齐的保存/放弃（官方 .footer / .save / .discard） ---- */
 .stp-footer{border-top:.5px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex}
 .stp-failed{min-width:0;color:var(--dsw-alias-label-error);flex:1;margin:0;font-size:12px;line-height:1.5}
