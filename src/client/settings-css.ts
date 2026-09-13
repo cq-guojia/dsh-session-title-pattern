@@ -16,8 +16,8 @@ export const SETTINGS_CSS = `
 .stp-card{border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);border-radius:16px;list-style:none;transition:border-color .16s,background .16s}
 .stp-card:hover{border-color:var(--dsw-alias-label-dimmed)}
 .stp-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}
-/* 首尾字段不要顶到 body 的分隔线上 */
-.stp-body>.stp-field:first-child{padding-top:4px}
+/* 末尾字段不要顶到页脚的分隔线上。首行**不做**特殊处理：曾经把首行压到 4px，
+   结果它和其余各行的间距不一致，看起来像漏了 padding。 */
 .stp-body>.stp-field:last-of-type{padding-bottom:4px}
 .stp-header{appearance:none;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}
 .stp-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
@@ -32,6 +32,9 @@ export const SETTINGS_CSS = `
 /* ---- 一个字段：标签在上、控件整宽在下、hint 再下一行（官方 .field） ---- */
 .stp-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}
 .stp-field+.stp-field{border-top:.5px solid var(--dsw-alias-border-l2)}
+/* 一行里并排两个下拉（供应商 + 模型），等宽平分 */
+.stp-pair{display:flex;gap:8px}
+.stp-pair>*{flex:1;min-width:0}
 .stp-head{align-items:center;gap:8px;display:flex}
 .stp-label{min-width:0;color:var(--dsw-alias-label-primary);flex:1;font-size:13px;font-weight:500;line-height:1.5}
 .stp-badges{align-items:center;gap:8px;display:inline-flex}

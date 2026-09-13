@@ -173,13 +173,9 @@ const FIELDS: readonly FieldDesc[] = [
     spec: numberField,
     modelOnly: true,
   },
-  {
-    field: 'provider',
-    label: '标题总结大模型',
-    hint: '先挑哪家的模型来做总结',
-    spec: textField,
-    modelOnly: true,
-  },
+  // provider 与 model 仍然各占 FIELDS 里的一项（保存、校验都按项走），
+  // 但**渲染时合并成一行两个下拉**，见 renderModelPair()。
+  { field: 'provider', label: '标题总结大模型', spec: textField, modelOnly: true },
   { field: 'model', label: '具体模型', spec: textField, modelOnly: true },
   {
     field: 'timeoutMs',
@@ -543,69 +539,129 @@ export function SettingsCard({
     }
   };
 
-  /**
-   * provider / model 的控件。
-   *
-   * 目录可用时渲染成**只能选**的下拉 —— 手写 provider/model 几乎总是拼错，
-   * 而拼错的结果是运行时调用失败，不如从根上不让输。目录读不到就退回文本输入。
-   */
-  const renderControl = (desc: FieldDesc): React.JSX.Element => {
-    const value = draftText(desc);
-    const disabled = !writable;
+  /** 普通字段的控件：一个整宽的输入框。 */
+  const renderControl = (desc: FieldDesc): React.JSX.Element => (
+    <input
+      className={isInvalid(desc) ? 'stp-input stp-inputInvalid' : 'stp-input'}
+      value={draftText(desc)}
+      disabled={!writable}
+      onChange={(event) => stage(desc.field, event.target.value)}
+    />
+  );
 
-    if (directory.status === 'ready') {
-      if (desc.field === 'provider') {
-        const known = directory.routes.some((route) => route.provider === value);
-        return (
-          <select
-            className="stp-input"
-            value={value}
-            disabled={disabled}
-            onChange={(event) => {
-              // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
-              stageMany({ provider: event.target.value, model: '' });
-            }}
-          >
-            <option value="">跟随会话主模型</option>
-            {directory.routes.map((route) => (
-              <option key={route.provider} value={route.provider}>
-                {route.displayName}
-              </option>
-            ))}
-            {value !== '' && !known ? <option value={value}>{`${value}（不在已配置列表）`}</option> : null}
-          </select>
-        );
-      }
-      if (desc.field === 'model') {
-        const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
-        const models = directory.routes.find((route) => route.provider === providerValue)?.models ?? [];
-        const known = models.some((model) => model.id === value);
-        return (
-          <select
-            className="stp-input"
-            value={value}
-            disabled={disabled}
-            onChange={(event) => stage(desc.field, event.target.value)}
-          >
-            <option value="">该供应商默认模型</option>
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name ?? model.id}
-              </option>
-            ))}
-            {value !== '' && !known ? <option value={value}>{`${value}（不在已配置列表）`}</option> : null}
-          </select>
-        );
-      }
-    }
+  /**
+   * 供应商 + 模型：**一行两个下拉**，不再拆成两个字段。
+   *
+   * 为什么合并：这本来就是一件事（先挑哪家的、再挑哪个模型），拆成两行时每行都要一套
+   * 「标签 + 已覆盖 + 恢复默认 + 说明」，读起来非常啰嗦。两个框的内容本身就能说明各自
+   * 是干什么的（一边是厂家名、一边是模型名），所以也不再各配一个标签 —— 左边第一个
+   * 选项是「跟随对话模型」，右边是「厂家默认模型」。
+   *
+   * 目录可用时是**只能选**的下拉：手写 provider / model 几乎总是拼错，而拼错的结果是
+   * 运行时调用失败，不如从根上不让输。目录读不到才退回两个文本输入。
+   */
+  const renderModelPair = (providerDesc: FieldDesc, modelDesc: FieldDesc): React.JSX.Element => {
+    const provider = draftText(providerDesc);
+    const model = draftText(modelDesc);
+    const disabled = !writable;
+    const routes = directory.status === 'ready' ? directory.routes : undefined;
+
+    const providerKnown = routes?.some((route) => route.provider === provider) ?? true;
+    const models = routes?.find((route) => route.provider === provider)?.models ?? [];
+    const modelKnown = models.some((entry) => entry.id === model);
+    // 跟随对话模型时，第二个框没有意义。
+    const following = provider === '';
+    const overridden = isOverridden(providerDesc) || isOverridden(modelDesc);
+
+    /** 两个框是一次选择的两个部分，「恢复默认」自然要一起清。 */
+    const restore = (): void => {
+      restoreDefault(providerDesc);
+      restoreDefault(modelDesc);
+    };
 
     return (
-      <input
-        className={isInvalid(desc) ? 'stp-input stp-inputInvalid' : 'stp-input'}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => stage(desc.field, event.target.value)}
-      />
+      <div key={providerDesc.field} className="stp-field">
+        <div className="stp-head">
+          <span className="stp-label">{providerDesc.label}</span>
+          <span className="stp-badges">
+            {overridden ? <span className="stp-overridden">已覆盖</span> : null}
+            <button type="button" className="stp-reset" disabled={!writable || !overridden} onClick={restore}>
+              恢复默认
+            </button>
+          </span>
+        </div>
+        <div className="stp-pair">
+          {routes === undefined ? (
+            <>
+              <input
+                className="stp-input"
+                value={provider}
+                disabled={disabled}
+                placeholder="供应商，如 deepseek"
+                onChange={(event) => {
+                  // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
+                  stageMany({ provider: event.target.value, model: '' });
+                }}
+              />
+              <input
+                className="stp-input"
+                value={model}
+                disabled={disabled}
+                placeholder="模型 id，留空用厂家默认"
+                onChange={(event) => stage(modelDesc.field, event.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <select
+                className="stp-input"
+                value={provider}
+                disabled={disabled}
+                aria-label="用哪家的模型总结标题"
+                onChange={(event) => {
+                  stageMany({ provider: event.target.value, model: '' });
+                }}
+              >
+                <option value="">跟随对话模型</option>
+                {routes.map((route) => (
+                  <option key={route.provider} value={route.provider}>
+                    {route.displayName}
+                  </option>
+                ))}
+                {provider !== '' && !providerKnown ? (
+                  <option value={provider}>{`${provider}（不在已配置列表）`}</option>
+                ) : null}
+              </select>
+              <select
+                className="stp-input"
+                value={model}
+                // 置灰而不是藏起来：两个框并排，藏一个会让布局跳动。
+                disabled={disabled || following}
+                aria-label="用哪个模型总结标题"
+                onChange={(event) => stage(modelDesc.field, event.target.value)}
+              >
+                <option value="">厂家默认模型</option>
+                {models.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name ?? entry.id}
+                  </option>
+                ))}
+                {model !== '' && !modelKnown ? (
+                  <option value={model}>{`${model}（不在已配置列表）`}</option>
+                ) : null}
+              </select>
+            </>
+          )}
+        </div>
+        {directory.status === 'unavailable' ? (
+          <p className="stp-hint">
+            {`未能读取已配置的模型列表（${directory.reason}），这两个框已退回手动输入`}
+          </p>
+        ) : null}
+        {directory.status === 'ready' && !directory.credentialsChecked ? (
+          <p className="stp-hint">未能读取凭据状态，列表只按设置文档判断，可能多列出没配好的供应商</p>
+        ) : null}
+      </div>
     );
   };
 
@@ -652,31 +708,21 @@ export function SettingsCard({
         {renderControl(desc)}
         {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
         {fieldInvalid ? <p className="stp-invalid">这里需要一个整数</p> : null}
-        {desc.field === 'provider' && directory.status === 'unavailable' ? (
-          <p className="stp-hint">
-            {`未能读取已配置的模型列表（${directory.reason}），这两行已退回手动输入`}
-          </p>
-        ) : null}
-        {desc.field === 'provider' && directory.status === 'ready' && !directory.credentialsChecked ? (
-          <p className="stp-hint">未能读取凭据状态，列表只按设置文档判断，可能多列出没配好的供应商</p>
-        ) : null}
       </div>
     );
   };
 
   if (!ready) return null;
 
-  const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
   const modeDesc = FIELDS.find((desc) => desc.field === 'mode');
+  const modelDesc = FIELDS.find((desc) => desc.field === 'model');
   // 以草稿为准：把开关关掉后，下面那些只对模型有意义的项应当**立刻**消失，
   // 不用等保存。关掉之后没有什么可配的，留着只会让人以为还生效。
   const modelMode = modeDesc === undefined || draftText(modeDesc) !== 'rules';
-  const visibleFields = FIELDS.filter((desc) => {
-    if (desc.modelOnly === true && !modelMode) return false;
-    // 跟随会话主模型时没有第二个选择，具体模型那一行不出现。
-    if (desc.field === 'model' && providerValue === '') return false;
-    return true;
-  });
+  // provider 与 model 合并成一行（两个下拉）渲染，所以 model 不单独出行。
+  const visibleFields = FIELDS.filter(
+    (desc) => (desc.modelOnly !== true || modelMode) && desc.field !== 'model',
+  );
 
   return (
     <li className={expanded ? 'stp-card stp-cardOpen' : 'stp-card'}>
@@ -705,7 +751,13 @@ export function SettingsCard({
                   ? undefined
                   : '已改用关键词规则：类型按关键词匹配得出、主题取首条消息原文，标题不会随对话更新。下面的分隔符与长度上限仍然有效。',
               )}
-          {visibleFields.filter((desc) => desc.field !== 'mode').map(renderField)}
+          {visibleFields
+            .filter((desc) => desc.field !== 'mode')
+            .map((desc) =>
+              desc.field === 'provider' && modelDesc !== undefined
+                ? renderModelPair(desc, modelDesc)
+                : renderField(desc),
+            )}
           <div className="stp-footer">
             {failed ? (
               <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>
