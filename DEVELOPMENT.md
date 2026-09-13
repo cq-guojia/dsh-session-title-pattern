@@ -11,9 +11,34 @@
 
 ---
 
-## 当前版本：v0.6.1
+## 当前版本：v0.6.2
 
-### v0.6.1（本次）
+### v0.6.2（本次）
+
+**修重命名卡片四个按钮全部失灵**（用户反馈：点「自动生成」没反应；改了名字点
+「确定保存」标题不变，只有锁定开关亮了）。
+
+**根因：命令行少了前导斜杠。** 卡片发给 host 的是 `title-rename xxx`、
+`title-suggest`，而 `CommandRuntime.execute()` 用 `parseCommand()` 解析，正则是
+`^\/([a-z][a-z0-9_-]*)`：不以 `/` 开头就直接返回 undefined，且注释明写
+"Admission misses (syntax or unknown name) log nothing" —— **连日志都不留**。
+v0.2.1 那个直达按钮发的是 `'/retitle'`（带斜杠，一直好用），v0.6.0 重构成卡片时
+新写的四条全漏了。
+
+对上症状：`runLine()` 拿到 undefined 就静默 resolve，`suggest()` 没文本 → 输入框
+不动；`rename()` 没写标题 → 标题不变，而 `save()` 里紧跟的 `setLocked(true)` 是
+本地 state、照常执行 —— 所以开关显示「已锁定」，而那个状态刷新页面就消失。
+
+**改动（两处，都在客户端）**：
+1. 四条命令行常量补 `/` 前缀（`RENAME_LINE` / `LOCK_LINE` / `UNLOCK_LINE` /
+   `SUGGEST_LINE`），并加注释说明为什么必须有它
+2. `runLine()` 的 `result === undefined` 分支补一条 `console.warn` —— 这条静默
+   路径正是"点了没反应又查不到原因"的元凶
+
+host 端未动：handler 里访问 `ctx.sessionTitle` 的写法与实机验证过的 `/retitle`
+同款。
+
+### v0.6.1
 
 重命名卡片的定位修正：原来是 `right:0`（右缘贴铅笔、向左铺开），左半截会伸过标题、
 压进侧边栏底下（实机截图确认）。改为打开时**实测标题元素（`_crumbCurrent`，与
@@ -974,7 +999,7 @@ host 与 client 两端都已采用。
 
 **目标**：修复代码审查发现的 16 项缺陷，整理构建链路
 
-详细根因与方案见 [REVIEW.md](./REVIEW.md)。
+（详细根因与方案原记在 `REVIEW.md`，该文件已不存在）
 
 **P0 功能性 / 契约性缺陷（12 项）**
 
@@ -1002,7 +1027,7 @@ host 与 client 两端都已采用。
 | 15 | 完全没有 `scripts` | 加 `build` / `build:host` / `build:client` / `typecheck` / `prepublishOnly` |
 | 16 | README 包名与 `package.json` 不一致、缺关键说明 | 重写 README |
 
-**待办（本轮不做，方案见 REVIEW.md 第 3 节）**
+**待办（本轮不做，原方案记在已删除的 `REVIEW.md` 第 3 节）**
 
 - 分类规则重构（规则表 + 最长匹配 + 加权打分）
 - 主题提取优化（停用词、按句切分、CJK/英文分治）

@@ -43,17 +43,25 @@ const ACTION_ORDER = -1000;
 /** 本菜单项在列表中的地址，必须全局唯一。 */
 const ENTRY_ID = 'generate-title';
 
+/**
+ * 下面四条是**完整的命令行**，必须带前导斜杠。
+ *
+ * host 端 `CommandRuntime.execute()` 用 `parseCommand()` 解析，正则要求
+ * `^\/[a-z][a-z0-9_-]*`：不带斜杠时它直接返回 undefined，而且属于
+ * "admission miss"（语法不合规），**连日志都不记** —— 表现就是按钮点了没反应、
+ * 控制台一片安静（v0.6.0 起四个按钮全废，根因就在这里）。
+ */
 /** 手动改名命令（host 端注册）：写入「用户」来源的标题，写入即进入锁定态。 */
-const RENAME_LINE = 'title-rename';
+const RENAME_LINE = '/title-rename';
 
 /** 锁定命令：把当前标题以「用户」来源写回，停止自动更新。 */
-const LOCK_LINE = 'title-lock';
+const LOCK_LINE = '/title-lock';
 
 /** 解锁命令：恢复自动更新。标题内容不变，不触发重新生成。 */
-const UNLOCK_LINE = 'title-unlock';
+const UNLOCK_LINE = '/title-unlock';
 
 /** 草稿命令：按当前对话真算一版标题，只返回文本、不写入，给「自动生成」按钮用。 */
-const SUGGEST_LINE = 'title-suggest';
+const SUGGEST_LINE = '/title-suggest';
 
 /** 浏览器控制台前缀，便于排查。 */
 const LOG = '[dsh-session-title-pattern]';
@@ -387,7 +395,12 @@ export function apply(ctx: Context): void {
         const result = (
           execution as { result?: { kind: string; text?: string } } | undefined
         )?.result;
-        if (result === undefined) return undefined;
+        if (result === undefined) {
+          // execute() 对「行不以 / 开头」与「命令未注册」都返回 undefined 且不留任何日志，
+          // 这里补一条：下次再出现「点了没反应」时，控制台至少能看出是命令没命中。
+          console.warn(`${LOG} ${line} 未被执行：行必须以 / 开头，且命令名必须已注册`);
+          return undefined;
+        }
         if (result.kind === 'error') {
           console.warn(`${LOG} ${line} 失败：${result.text ?? '（无详情）'}`);
           return undefined;
