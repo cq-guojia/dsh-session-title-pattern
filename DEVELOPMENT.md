@@ -11,9 +11,39 @@
 
 ---
 
-## 当前版本：v0.5.17
+## 当前版本：v0.5.18
 
-### v0.5.17（本次）
+### v0.5.18（本次）
+
+**按 dsh-market 的上架要求整备**（读的是 dshmarket 自己的 README + awesome-dsh-plugin 的
+`contributing.md`）。
+
+**上架路径（与 npm 无关）**：dsh-market 是市场应用本身，插件列表来自 curated 仓库
+**awesome-dsh-plugin**。上架 = 往那个仓库提 PR，**新增一个文件**
+`data/plugins/cq-guojia__dsh-session-title-pattern.yml`（**不要**改它的 README，那是脚本生成的）。
+收录后 **GitHub 直装是一等公民**：条目里 `npm: null`、`install: dsh plugin --profile web add
+github:owner/repo` —— **不发 npm 也能上架**。
+
+**本轮改动：**
+
+1. **修 peer 依赖范围（真问题）**：`@deepseek-ai/dsh-*` 原本写的是 `^0.1.5-rc.2`。
+   官方 contributing 明确点出这是坑：**不带显式预发布分支的范围会静默排除 harness 的所有
+   预发布构建** —— `^0.1.5-rc.2` 只覆盖 `0.1.5` 这一个 patch 的预发布，等 dsh 升到
+   `0.1.6-rc.1` 就会把用户直接挡在 `ERESOLVE` 上。改成 `>=0.1.0-rc.0 <0.2.0-0`
+   （覆盖 0.1.x 的全部正式版与预发布）。
+2. **新增 `screenshots.json`**（仓库根，1–8 张仓库内图片路径）：市场优先读它，没有才去
+   README 里抽。路径相对该文件、不能跳出插件目录。
+3. **package.json 元数据补全**：`keywords`（含 `dsh-plugin`）、`repository`、`homepage`、
+   `author`；`files` 加上 `screenshots.json`。
+4. 清理工作区：删掉 27 个历史 `.tgz`（都在 `.gitignore` 里，本来就没进版本库）。
+
+**待用户在做的事（我这边做不了）：**
+
+- 给 GitHub 仓库加 **`dsh-plugin`** topic（上架 checklist 明确要求）
+- **仓库满 1 天**后再提 PR（CI 硬门槛；首次提交 2026-09-12 19:15）
+- 提 PR：新增 `data/plugins/cq-guojia__dsh-session-title-pattern.yml`
+
+### v0.5.17
 
 **为发布到插件市场重排 README**（只动文档与仓库内图片，代码未变）。
 
