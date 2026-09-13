@@ -11,9 +11,28 @@
 
 ---
 
-## 当前版本：v0.5.10
+## 当前版本：v0.5.11
 
-### v0.5.10（本次）
+### v0.5.11（本次）
+
+**只加文档**：README 新增「更新时报『pnpm 阻止了构建脚本』怎么办」。
+
+实机更新失败，报 `ERR_PNPM_IGNORED_BUILDS`，dsh 提示去 profile 的 `pnpm-workspace.yaml`
+里加 `allowBuilds` 条目。查 pnpm 官方文档后确认了三件事，记进 README 以免下次再查：
+
+1. `allowBuilds` 是 **pnpm v11** 的设置（v10.26.0 引入），形状是 **map（包 → 布尔）**；
+   v11 已**移除** `onlyBuiltDependencies` / `neverBuiltDependencies` /
+   `ignoredBuiltDependencies` 这些数组式旧设置 —— 所以网上 v10 的写法在 v11 上不会被识别
+2. **git 托管的包不能用包名批准**（名字不足以标识产物），必须写成
+   `包名@git 地址`（不带 `#ref`）或精确到 commit；同一仓库的 `git+ssh://` 与
+   `git+https://` 是两个不同的键
+3. 安装时 pnpm 会把未审核的条目**以占位值自动写进** `pnpm-workspace.yaml`，
+   多数情况下只要把那个值改成 `true` 就行
+
+顺带说明了两点：本插件产物 `lib/` 已入库、安装并不需要真编译，这道许可来自 pnpm 对
+git 托管包的一刀切策略；更新失败后 profile 可能停在中间状态，修好后 `add` 一次即可。
+
+### v0.5.10
 
 **`retitleEvery` 默认 5 → 10。** 用户实跑后觉得 5 轮偏短，改为 10。
 

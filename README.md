@@ -25,7 +25,42 @@ dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
 
 安装后**无需任何额外配置**。
 
-### 关于版本锁定（重要）
+### 更新时报「pnpm 阻止了构建脚本」怎么办
+
+装好之后点「更新」可能失败，提示：
+
+```
+dsh: pnpm failed in profile directory ~/.dsh/profiles/web
+dsh: git-hosted plugins build on install via their prepare script, which pnpm blocks
+     until allowed — add the exact key pnpm printed above under allowBuilds ...
+```
+
+这是 **pnpm v11 的策略**，与本插件改了什么无关：
+
+- v11 默认不执行任何依赖的构建脚本；未列进 `allowBuilds` 时安装以
+  `ERR_PNPM_IGNORED_BUILDS` 失败
+- **git 托管的包不能用包名批准** —— 名字不足以标识产物，必须用 git 地址（或精确到 commit）
+- `allowBuilds` 在 `pnpm-workspace.yaml` 里是 **map（包 → `true`/`false`）**，
+  而不是 v10 那种数组式的 `onlyBuiltDependencies`（v11 已移除它）
+
+**怎么修**：pnpm 通常**已经把这一条写进 profile 的 `pnpm-workspace.yaml` 了**，
+只是值是占位符 —— 打开 `~/.dsh/profiles/<profile>/pnpm-workspace.yaml`，
+把这一条的值改成 `true`，再重新执行更新。若里面没有，就在该目录下执行
+`pnpm approve-builds` 交互式批准（它会写入格式正确的键）。
+
+要手写的话，键是**包名 + git 地址**（不带 `#ref`；同一仓库的 `git+ssh://` 与
+`git+https://` 是两个不同的键，必须与安装时用的地址一致）：
+
+```yaml
+allowBuilds:
+  '@cq-guojia/dsh-session-title-pattern@git+https://github.com/cq-guojia/dsh-session-title-pattern.git': true
+```
+
+> 顺带说明：本插件的产物 `lib/` **已经提交在仓库里**，安装时并不需要真的编译 ——
+> 这道许可来自 pnpm 对「git 托管包」的一刀切策略。profile 用 pnpm v10 的话不存在这个问题。
+
+> 更新失败后 profile 可能停在「旧版本已卸掉、新版本没装上」的中间状态。
+> 修好许可后再 `add` 一次即可；重启前先确认 `dsh` 还能正常起来。
 
 git 安装有两种写法，行为差别很大：
 
