@@ -202,7 +202,7 @@ export async function callTitleModel(
   settings: LlmSettings,
   request: SessionTitleProviderRequest,
   state: RollState,
-): Promise<{ text: string; route: LlmRoute }> {
+): Promise<{ text: string; route: LlmRoute; inputBytes: number }> {
   const route = resolveRoute(settings, request);
   const input = buildPromptInput(state, request.messages, settings.maxInputBytes);
 
@@ -251,7 +251,8 @@ export async function callTitleModel(
       .trim();
     if (text.length === 0) throw new Error('标题模型没有输出任何文本');
 
-    return { text, route };
+    // 顺带把输入字节数带回去：调用方用它记一条日志，成本排查全靠这个。
+    return { text, route, inputBytes: byteLength(input) };
   } finally {
     // 不用 `using` 语法：手动释放，避免依赖显式资源管理的编译目标。
     call[Symbol.dispose]();

@@ -191,7 +191,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
             '请安装它，或把本插件的 mode 设为 rules',
         );
       }
-      const { text, route } = await callTitleModel(llm, name, config, request, state);
+      const startedAt = Date.now();
+      const { text, route, inputBytes } = await callTitleModel(llm, name, config, request, state);
 
       const parsed = parseTitleLine(text);
       const first = request.messages[0];
@@ -207,6 +208,13 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
 
       state.summary = toSummary(text);
       state.seenCount = request.messages.length;
+
+      // 可观测性：每次真调模型都留一条。出问题时一眼能看出走了哪条路由、
+      // 发了多少字节、花了多久 —— 之前正常调用是完全静默的，排查只能靠猜。
+      this.ctx.logger(name).info(
+        `标题已生成（第 ${request.messages.length} 条消息，${route.provider}/${route.model}，` +
+          `输入 ${inputBytes} 字节，耗时 ${Date.now() - startedAt}ms）：${title}`,
+      );
       return { title, messageSeqs, model: route };
     } catch (error) {
       // 降级：**不覆盖已有标题**。服务的 runProvider 只在 provider 成功返回后才
@@ -293,6 +301,10 @@ function trackRecomputes(
     if (state.count < 2 || state.count % config.retitleEvery !== 0) return;
     // 用户手动重命名过的会话处于 pinned 状态，不再自动接管（与服务的自动调度口径一致）。
     if (ctx.sessionTitle.get(session)?.source.kind === 'user') return;
+
+    ctx.logger(name).info(
+      `第 ${state.count} 条消息，触发一次标题重算（每 ${config.retitleEvery} 条一次）`,
+    );
 
     // 事件是 fire-and-forget 的通知，不能阻塞它；失败已由 provider 内部记录。
     void ctx.sessionTitle.refresh(session).catch(() => undefined);
