@@ -11,9 +11,28 @@
 
 ---
 
-## 当前版本：v0.6.4
+## 当前版本：v0.6.5
 
-### v0.6.4（本次）
+### v0.6.5（本次）
+
+**修「解除锁定」必失败**：
+
+```
+title-unlock 解锁失败：Error: session-title provider must identify at least one source message seq
+```
+
+解锁走的是「provider 原样返回当前标题」，而**用户改名产生的标题 `messageSeqs`
+是空数组** —— 平台语义如此（手动命名不指认任何消息，`SessionTitleSnapshot` 的
+注释明写 "empty for an explicit user rename"）。服务的 `validateResult` 要求
+provider 至少指认一条 seq，空数组直接被拒。
+
+也就是说：**凡是通过 rename 锁定的会话，解锁必然失败** —— v0.6.0 起就没成功过，
+只是此前锁定态显示都是本地假象，没人走到这一步。
+
+改法：`messageSeqs` 为空时改用本次 `request.messages` 的 seq。解锁只换来源
+（user → provider），指认哪些消息不影响标题文字；一条都没有才照常生成。
+
+### v0.6.4
 
 **「host 明明执行了，客户端却拿不到返回值」—— 两个症状同一个根因。**
 

@@ -253,9 +253,18 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     if (this.pendingUnlocks.delete(request.session.id)) {
       const current = this.ctx.sessionTitle.get(request.session);
       if (current !== undefined && current.title.length > 0) {
-        return { title: current.title, messageSeqs: current.messageSeqs };
+        // **用户改名的标题 messageSeqs 是空的** —— 平台语义就如此（手动命名不指认
+        // 任何消息），而服务要求 provider 至少指认一条，空数组会被 validateResult
+        // 拒掉：`session-title provider must identify at least one source message seq`
+        // （实机就是这么失败的：锁定=rename，解锁时拿到的就是空数组）。
+        // 用本次 request 收到的消息 seq 顶上：解锁只换来源，指认哪些消息不影响文字。
+        const seqs =
+          current.messageSeqs.length > 0
+            ? current.messageSeqs
+            : request.messages.map((message) => message.seq);
+        if (seqs.length > 0) return { title: current.title, messageSeqs: seqs };
       }
-      // 没有可保留的标题（理论上到不了：面板只在有标题时才允许解锁），照常生成。
+      // 没有可保留的标题、或连消息都没有：照常生成。
     }
     const messageSeqs = request.messages.map((message) => message.seq);
     // 每次调用都读当前生效的配置，而不是构造时冻结的那份。
