@@ -186,8 +186,8 @@ const FIELDS: readonly FieldDesc[] = [
   },
   {
     field: 'maxOutputTokens',
-    label: '输出上限',
-    hint: '单次调用输出 token 上限',
+    label: '模型最多写多少',
+    hint: '单位是 token，64 大致相当于 100 个汉字。标题只占一行，这一项只是防止模型啰嗦，一般不用改',
     spec: numberField,
     modelOnly: true,
   },
