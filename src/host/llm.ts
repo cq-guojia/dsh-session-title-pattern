@@ -49,6 +49,10 @@ const SYSTEM_PROMPT = [
   '  - **主线优先**：标题必须与第一行的主线一致。最近几轮可能只是在解决主线下面',
   '    的某个具体问题，不要让它们把标题带偏。',
   '',
+  '示例（假设主线是「开发登录模块」、类型是「排查」、主题是「处理登录 401」），输出正好是这两行：',
+  '开发登录模块',
+  '排查|处理登录 401',
+  '',
   '要求：跟随消息本身的语言；行内不要引号、Markdown、编号或解释。',
 ].join('\n');
 
@@ -183,22 +187,77 @@ export function parseTitleLine(raw: string): { type: string; topic: string } {
   return { type: '', topic: cleaned };
 }
 
+/** 行首的编号 / 项目符号（`1.`、`-`、`、`…），模型经常顺手加。 */
+const BULLET = /^[-\s*\d.、]+/;
+
 /**
  * 解析模型的两行输出：第一行主线，第二行 `类型|主题`。
  *
- * 兼容退化：只吐出一行时按老格式（`类型|主题`）解析，**主线返回空串**、
- * 由调用方沿用上一次的值 —— 不猜那一行到底是主线还是标题。
+ * **模型经常照抄提示词的措辞**，把行写成 `主线：xxx`、`类型：编程`、`主题：xxx` ——
+ * 实测出过标题被解析成 `其他｜类型：编程` 的事故（「类型：编程」没有竖线，
+ * 老解析器认不出类型，整行落进了主题，类型回退到规则的「其他」）。
+ *
+ * 所以这里按**行首标签**归类，而不是死认行序；完全认不出标签才退回老约定
+ * （两行 = 主线 + 标题行；一行 = 标题行，主线沿用上一次的）。
  */
 export function parseTitleOutput(
   raw: string,
 ): { mainLine: string; type: string; topic: string; titleLine: string } {
-  const lines = raw.split('\n').map((part) => part.trim()).filter((part) => part.length > 0);
-  const [first, second] = lines;
-  if (first === undefined) return { mainLine: '', type: '', topic: '', titleLine: '' };
-  if (second === undefined) {
-    return { mainLine: '', ...parseTitleLine(first), titleLine: first };
+  const empty = { mainLine: '', type: '', topic: '', titleLine: '' };
+  const lines = raw
+    .split('\n')
+    .map((part) => part.replace(BULLET, '').trim())
+    .filter((part) => part.length > 0);
+  if (lines.length === 0) return empty;
+
+  let mainLine = '';
+  let type = '';
+  let topic = '';
+  const bare: string[] = [];
+  for (const line of lines) {
+    if (/^主线\s*[:：]/.test(line)) {
+      mainLine ||= line.replace(/^主线\s*[:：]\s*/, '');
+      continue;
+    }
+    // 类型 / 主题可能各占一行，也可能挤在同一行里（`类型：编程｜主题：配置损坏`）——
+    // 都按段拆开归位，取标签后面的值。
+    if (/^(类型|主题)\s*[:：]/.test(line)) {
+      const parts = line
+        .split(/[|｜]/)
+        .map((part) => part.replace(BULLET, '').trim())
+        .filter((part) => part.length > 0);
+      for (const part of parts) {
+        if (/^类型\s*[:：]/.test(part)) type ||= part.replace(/^类型\s*[:：]\s*/, '');
+        else if (/^主题\s*[:：]/.test(part)) topic ||= part.replace(/^主题\s*[:：]\s*/, '');
+      }
+      continue;
+    }
+    bare.push(line);
   }
-  return { mainLine: first, ...parseTitleLine(second), titleLine: second };
+
+  // 只吐了一行主线：把主线当主题用，类型走规则回退 —— 总比把「主线：」原样
+  // 留在标题里强。
+  if (type === '' && topic === '' && mainLine !== '' && bare.length === 0) {
+    return { mainLine, type: '', topic: mainLine, titleLine: mainLine };
+  }
+
+  if (type !== '' || topic !== '') {
+    const cappedType = [...type].slice(0, MAX_TYPE_CHARS).join('');
+    return {
+      mainLine,
+      type: cappedType,
+      topic,
+      titleLine: topic === '' ? cappedType : `${cappedType}|${topic}`,
+    };
+  }
+
+  // 无标签：两行 = 主线 + 标题行；一行 = 标题行（主线沿用上一次的）。
+  if (bare.length >= 2) {
+    const [first, second] = bare;
+    return { mainLine: mainLine || first, ...parseTitleLine(second), titleLine: second };
+  }
+  const single = bare[0] ?? lines[0];
+  return { ...empty, ...parseTitleLine(single), titleLine: single };
 }
 
 /**
