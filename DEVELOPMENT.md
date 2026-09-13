@@ -11,9 +11,41 @@
 
 ---
 
-## 当前版本：v0.3.0
+## 当前版本：v0.3.1
 
-### v0.3.0（本次）
+### v0.3.1（本次）
+
+修复 v0.3.0 的致命缺陷：**`/retitle` 与自动生成全部报
+`Error: cannot get property "llm" without inject`**。
+
+**根因**：cordis 的 `Context` 是受保护的代理，**未在 `inject` 里声明的服务属性一经访问
+就抛错**。v0.3.0 在 `callTitleModel` 里直接写了 `ctx.llm.stream(...)`，而本插件的
+`inject` 只有 `['sessionTitle']`。
+
+**修法**：没有简单地把 `llm` 加进 `inject` 声明，而是改用**延迟注入**：
+
+```ts
+let llm: LlmService | undefined;
+ctx.inject(['llm'], (llmCtx) => { llm = llmCtx.llm; });
+```
+
+理由：`mode: rules` 时我们根本不需要 LLM，而**声明式依赖会让本 entry 在缺少该服务的
+组合里一直 pending**。延迟注入让「没有 llm」只表现为「LLM 模式不可用」，rules 模式照常工作。
+与项目对 `commands` 的处理一致。
+
+配套改动：`callTitleModel` 的第一个参数从 `Context` 改为 `LlmService`（服务由参数传入，
+不再从 ctx 上取），`LlmService` 类型用 `Context['llm']` 表达；provider 构造函数新增
+`getLlm: () => LlmService | undefined`；取不到时抛带说明的错误，走既有的「保留上一次标题」
+降级路径。
+
+**验证**：`npm run typecheck` 通过；产物核对 —— 含 `inject(["llm"]`，`llm.stream`，
+且 `grep "ctx\.llm" lib/index.mjs` **无结果**。
+
+**教训**：这个错误不是"配置问题"，而是插件在开发环境里无法暴露的一类错误（本地没有 dsh
+运行环境，typecheck 也查不出受保护代理的运行时约束）。凡是访问 `ctx.<服务>`，都必须先确认
+该服务已在 `inject` 声明里，或通过 `ctx.inject` 拿到。
+
+### v0.3.0
 
 接入大模型：类型与主题改为模型对**整段对话**的总结，首条消息先生成一次，之后每 N 轮滚动重算。
 

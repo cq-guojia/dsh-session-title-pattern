@@ -12,6 +12,7 @@ import type {} from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 
 import { callTitleModel, parseTitleLine, toSummary } from './llm';
+import type { LlmService } from './llm';
 import {
   FALLBACK_TYPE,
   buildRuleTitle,
@@ -132,6 +133,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     private readonly ctx: Context,
     private readonly config: Config,
     private readonly states: Map<string, SessionState>,
+    /** 延迟注入的 llm 服务；未就绪时返回 undefined。 */
+    private readonly getLlm: () => LlmService | undefined,
   ) {}
 
   private stateOf(id: string): SessionState {
@@ -152,13 +155,14 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     const state = this.stateOf(request.session.id);
 
     try {
-      const { text, route } = await callTitleModel(
-        this.ctx,
-        name,
-        this.config,
-        request,
-        state,
-      );
+      const llm = this.getLlm();
+      if (llm === undefined) {
+        throw new Error(
+          'llm 服务尚未就绪：当前组合里没有可用的 @deepseek-ai/dsh-llm，' +
+            '请安装它，或把本插件的 mode 设为 rules',
+        );
+      }
+      const { text, route } = await callTitleModel(llm, name, this.config, request, state);
 
       const parsed = parseTitleLine(text);
       const first = request.messages[0];
@@ -270,8 +274,20 @@ function trackRecomputes(
 
 export function apply(ctx: Context, config: Config): void {
   const states = new Map<string, SessionState>();
-  const provider = new SessionTitlePatternProvider(ctx, config, states);
   const logger = ctx.logger(name);
+
+  // llm 绝不能写进 inject 声明：`mode: rules` 时我们根本不需要它，而声明式依赖
+  // 会让本 entry 在缺少该服务的组合里一直 pending。用 ctx.inject 延迟等待：
+  // 拿不到就只是「LLM 模式不可用」，rules 模式照常工作。
+  //
+  // 也不能直接写 `ctx.llm` —— cordis 的 Context 是受保护的代理，未声明的服务
+  // 属性一访问就抛 `cannot get property "llm" without inject`。
+  let llm: LlmService | undefined;
+  ctx.inject(['llm'], (llmCtx) => {
+    llm = llmCtx.llm;
+  });
+
+  const provider = new SessionTitlePatternProvider(ctx, config, states, () => llm);
 
   // SessionTitleService.register() 是全局单例，重复注册直接抛。
   // 正常情况下我们的 bundle patch 会禁用 dsh-base 的 session-title-llm，

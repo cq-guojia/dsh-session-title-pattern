@@ -12,6 +12,14 @@ import type { Context } from '@deepseek-ai/cordis';
 export const TIMEOUT_CODE = 'SESSION_TITLE_TIMEOUT';
 
 /**
+ * LLM 运行时服务。
+ *
+ * 用 `Context['llm']` 而不是从 `dsh-llm` 直接引类型：模块增强已把 `llm` 挂到
+ * Context 上，这里只需拿到访问方式。
+ */
+export type LlmService = Context['llm'];
+
+/**
  * 首条消息在提示里保留的字节数。
  *
  * 它只用来锚住「这段会话最初想干什么」，防止多轮压缩后主题漂移，因此不需要完整。
@@ -180,12 +188,16 @@ export function resolveRoute(settings: LlmSettings, request: SessionTitleProvide
 /**
  * 调用一次辅助模型，拿回标题单行。
  *
- * 与官方 LLM 标题插件同构：`ctx.llm.stream` 流式调用 + `BlockAssembler` 组装 +
+ * 服务是**参数传入**而不是从 `ctx` 上取：cordis 的 Context 是受保护的代理，
+ * 未在 inject 里声明的服务属性一旦访问就抛 `cannot get property "llm" without inject`。
+ * 调用方通过延迟注入拿到它，顺便让 `mode: rules` 在没有 llm 的组合里也能正常工作。
+ *
+ * 与官方 LLM 标题插件同构：`llm.stream` 流式调用 + `BlockAssembler` 组装 +
  * `deadline` 组合超时与上游取消。`purpose` 是封闭枚举，辅助调用只能标
  * `session-title`。
  */
 export async function callTitleModel(
-  ctx: Context,
+  llm: LlmService,
   pluginName: string,
   settings: LlmSettings,
   request: SessionTitleProviderRequest,
@@ -215,7 +227,7 @@ export async function callTitleModel(
     };
 
     const assembler = new BlockAssembler();
-    for await (const chunk of ctx.llm.stream(options)) {
+    for await (const chunk of llm.stream(options)) {
       call.signal.throwIfAborted();
       assembler.push(chunk);
     }
