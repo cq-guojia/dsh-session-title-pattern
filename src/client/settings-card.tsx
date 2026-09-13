@@ -34,6 +34,29 @@ export interface PluginConfig {
 /** 一个字段保存时要做的事。`clear` 表示让它重新继承下层（我们走 `unset`）。 */
 type FieldWrite = { kind: 'set'; value: unknown } | { kind: 'clear' };
 
+/** 卡片标题行的样式：整行是一个按钮（与官方 `PluginCard` 的头部一致）。 */
+const headerStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '10px 12px',
+  textAlign: 'left',
+  cursor: 'pointer',
+  background: '0 0',
+  border: '1px solid var(--dsw-alias-border-l3)',
+  borderRadius: 12,
+  color: 'var(--dsw-alias-label-primary)',
+} as const;
+
+const dirtyBadgeStyle = {
+  fontSize: 11,
+  padding: '0 6px',
+  borderRadius: 6,
+  color: 'var(--dsw-alias-state-business-primary)',
+  background: 'var(--dsw-alias-interactive-bg-hover)',
+} as const;
+
 /**
  * 一个字段如何在「存储值」与「草稿文本」之间转换。
  *
@@ -167,6 +190,8 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
   const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
+  // 默认折叠。官方的插件卡片也是收起状态，点标题行才展开详细设置。
+  const [expanded, setExpanded] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -262,13 +287,20 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
     return (
       <div key={desc.field} style={{ marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Switch 的 label 只用于无障碍，不会渲染出可见文字，所以这里补一个字段名。 */}
+          <span style={labelStyle}>
+            {desc.label}
+            {overridden ? <span style={overriddenBadgeStyle}>已覆盖</span> : null}
+          </span>
           <Switch
             checked={draftText(desc) !== 'rules'}
             disabled={!writable}
             label={desc.label}
             onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
           />
-          {overridden ? <span style={overriddenBadgeStyle}>已覆盖</span> : null}
+          <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
+            {draftText(desc) !== 'rules' ? '模型总结' : '关键词规则'}
+          </span>
           <Button
             variant="ghost"
             size="sm"
@@ -309,6 +341,27 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
 
   return (
     <div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        style={headerStyle}
+      >
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, textAlign: 'left' }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' }}>
+            会话标题
+          </span>
+          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }}>
+            用模型总结会话标题的类型与主题，也可以退回关键词规则。
+          </span>
+        </span>
+        {/* 折叠不影响暂存的改动，所以标题行要标出「有未保存的改动」。 */}
+        {dirty ? <span style={dirtyBadgeStyle}>未保存</span> : null}
+        <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}>
+          {expanded ? '▲' : '▼'}
+        </span>
+      </button>
+      <div style={{ display: expanded ? 'block' : 'none', marginTop: 10 }}>
       {FIELDS.filter((desc) => desc.group === 'top').map((desc) =>
         desc.field === 'mode' ? renderModeRow(desc) : renderRow(desc),
       )}
@@ -347,6 +400,7 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
             当前连接为进程内模式，配置不会写入 Host 文档
           </span>
         )}
+      </div>
       </div>
     </div>
   );
