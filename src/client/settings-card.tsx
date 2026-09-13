@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSyncExternalStore } from 'react';
 import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
@@ -29,6 +29,124 @@ export interface PluginConfig {
   maxOutputTokens?: number;
   separator?: string;
   maxBytes?: number;
+}
+
+/**
+ * `llm` 远端命名空间里我们用到的方法。
+ *
+ * 结构化声明而不是引 dsh-llm 的 remote 类型入口：只用到两个方法，
+ * 远端结果用 `{ ok, value? }` 形状判定即可。
+ */
+export interface LlmDirectory {
+  listProviders: () => Promise<{
+    ok: boolean;
+    value?: readonly { id: string; name: string }[] | undefined;
+  }>;
+  listConfigurableProviders: () => Promise<{
+    ok: boolean;
+    value?:
+      | readonly {
+          provider: string;
+          displayName: string;
+          settingsNs: string;
+          settingsPath: readonly string[];
+        }[]
+      | undefined;
+  }>;
+}
+
+/** 设置镜像的读取面：只用到「确保读过一次」与「拿当前快照」。 */
+export interface DescribeFace {
+  ensure: () => Promise<void>;
+  getSnapshot: () => {
+    view?: { namespaces: readonly { ns: string; value?: unknown }[] } | undefined;
+  };
+}
+
+/** 一条可选路由，以及它已配置的模型。 */
+interface DirectoryRoute {
+  provider: string;
+  displayName: string;
+  models: readonly { id: string; name?: string }[];
+}
+
+type DirectoryState =
+  | { status: 'loading' }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'ready'; routes: readonly DirectoryRoute[] };
+
+/**
+ * 从某个 provider 的 profile 里读出 `models` 数组。
+ *
+ * profile 的形状由各适配器自己的 schema 决定，所以全程做结构判定：
+ * 任何一步对不上就返回空数组，调用方据此把该行退回文本输入。
+ */
+function readModels(section: unknown, path: readonly string[]): { id: string; name?: string }[] {
+  let node: unknown = section;
+  for (const key of path) {
+    if (node === null || typeof node !== 'object') return [];
+    node = (node as Record<string, unknown>)[key];
+  }
+  if (node === null || typeof node !== 'object') return [];
+  const models = (node as Record<string, unknown>).models;
+  if (!Array.isArray(models)) return [];
+
+  const result: { id: string; name?: string }[] = [];
+  for (const entry of models) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== 'string' || record.id.length === 0) continue;
+    result.push(typeof record.name === 'string' ? { id: record.id, name: record.name } : { id: record.id });
+  }
+  return result;
+}
+
+/**
+ * 组装「供应商 → 已配置模型」目录。
+ *
+ * 两个来源：`listProviders`（当前已注册的路由）与 `listConfigurableProviders`
+ * （已声明可配置的路由，带 settingsNs 地址）。模型不在这些接口里，而在每个
+ * provider 自己的设置 section 里，所以还要读一次设置镜像。
+ */
+async function loadDirectory(llm: LlmDirectory, describe: DescribeFace): Promise<DirectoryState> {
+  try {
+    const [registered, declared] = await Promise.all([llm.listProviders(), llm.listConfigurableProviders()]);
+    if (registered.ok !== true && declared.ok !== true) {
+      return { status: 'unavailable', reason: '无法读取模型供应商目录' };
+    }
+    await describe.ensure();
+    const views = describe.getSnapshot().view?.namespaces ?? [];
+
+    const addresses = new Map<string, { displayName: string; settingsNs?: string; settingsPath: readonly string[] }>();
+    // 先放已声明的（带设置地址），再补上已注册的（没有地址，拿不到模型列表）。
+    for (const entry of declared.ok ? (declared.value ?? []) : []) {
+      addresses.set(entry.provider, {
+        displayName: entry.displayName,
+        settingsNs: entry.settingsNs,
+        settingsPath: entry.settingsPath ?? [],
+      });
+    }
+    for (const entry of registered.ok ? (registered.value ?? []) : []) {
+      if (!addresses.has(entry.id)) addresses.set(entry.id, { displayName: entry.name, settingsPath: [] });
+    }
+
+    const routes: DirectoryRoute[] = [];
+    for (const [provider, address] of addresses) {
+      const view =
+        address.settingsNs === undefined
+          ? undefined
+          : views.find((candidate) => candidate.ns === address.settingsNs);
+      routes.push({
+        provider,
+        displayName: address.displayName,
+        models: readModels(view?.value, address.settingsPath),
+      });
+    }
+    routes.sort((left, right) => left.displayName.localeCompare(right.displayName));
+    return { status: 'ready', routes };
+  } catch (error) {
+    return { status: 'unavailable', reason: String(error) };
+  }
 }
 
 /** 一个字段保存时要做的事。`clear` 表示让它重新继承下层（我们走 `unset`）。 */
@@ -166,9 +284,27 @@ const overriddenBadgeStyle = {
   color: 'var(--dsw-alias-state-business-primary)',
 } as const;
 
+/** provider / model 下拉的样式。没有 Select 基础组件，用原生 select 配上主题变量。 */
+const selectStyle = {
+  flex: 1,
+  minWidth: 0,
+  height: 32,
+  padding: '0 8px',
+  fontSize: 13,
+  color: 'var(--dsw-alias-label-primary)',
+  background: 'var(--dsw-specific-input-major, var(--dsw-alias-bg-base))',
+  border: '1px solid var(--dsw-alias-border-l3)',
+  borderRadius: 8,
+  cursor: 'pointer',
+} as const;
+
 type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
   /** 由注册项的 inject 工厂注入：绑定到本插件命名空间的设置作用域。 */
   scope: SettingsScope<PluginConfig>;
+  /** 设置镜像读取面：用来读各 provider 已配置的模型。 */
+  describe: DescribeFace;
+  /** 延迟注入的 llm 远端；拿不到就让 provider/model 退回文本输入。 */
+  getLlm: () => LlmDirectory | undefined;
 };
 
 function hasKey(value: object, key: string): boolean {
@@ -184,11 +320,27 @@ function hasKey(value: object, key: string): boolean {
  * 自己渲染表单是因为客户端纯度闸门禁止复用设置区块自带的卡片外壳，
  * 只能从平台模块（ui-primitives）取控件。
  */
-export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | null {
+export function SettingsCard({ scope, describe, getLlm }: SettingsCardProps): React.JSX.Element | null {
   const subscribe = useCallback((onChange: () => void) => scope.subscribe(onChange), [scope]);
   // getSnapshot 必须返回稳定引用：作用域的实现在值不变时保证同一引用。
   const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
+
+  const [directory, setDirectory] = useState<DirectoryState>({ status: 'loading' });
+  useEffect(() => {
+    const llm = getLlm();
+    if (llm === undefined) {
+      setDirectory({ status: 'unavailable', reason: 'llm 远端服务不可用' });
+      return undefined;
+    }
+    let alive = true;
+    void loadDirectory(llm, describe).then((next) => {
+      if (alive) setDirectory(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [describe, getLlm]);
 
   // 默认折叠。官方的插件卡片也是收起状态，点标题行才展开详细设置。
   const [expanded, setExpanded] = useState(false);
@@ -228,6 +380,80 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
     setDrafts((previous) => ({ ...previous, [field]: text }));
   };
 
+  const stageMany = (patch: Record<string, string>): void => {
+    setFailed(false);
+    setDrafts((previous) => ({ ...previous, ...patch }));
+  };
+
+  /**
+   * provider / model 的控件。
+   *
+   * 目录可用时渲染成**只能选**的下拉 —— 手写 provider/model 几乎总是拼错，
+   * 而拼错的结果是运行时调用失败，不如从根上不让输。目录读不到就退回文本输入。
+   */
+  const renderControl = (desc: FieldDesc): React.JSX.Element => {
+    const value = draftText(desc);
+    const disabled = !writable;
+
+    if (directory.status === 'ready') {
+      if (desc.field === 'provider') {
+        const known = directory.routes.some((route) => route.provider === value);
+        return (
+          <select
+            value={value}
+            disabled={disabled}
+            style={selectStyle}
+            onChange={(event) => {
+              // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
+              stageMany({ provider: event.target.value, model: '' });
+            }}
+          >
+            <option value="">跟随会话主模型</option>
+            {directory.routes.map((route) => (
+              <option key={route.provider} value={route.provider}>
+                {route.displayName}
+              </option>
+            ))}
+            {value !== '' && !known ? <option value={value}>{`${value}（不在已配置列表）`}</option> : null}
+          </select>
+        );
+      }
+      if (desc.field === 'model') {
+        const providerValue = drafts.provider ?? (typeof section.provider === 'string' ? section.provider : '');
+        const models =
+          directory.routes.find((route) => route.provider === providerValue)?.models ?? [];
+        const known = models.some((model) => model.id === value);
+        return (
+          <select
+            value={value}
+            disabled={disabled || providerValue === ''}
+            style={selectStyle}
+            onChange={(event) => stage(desc.field, event.target.value)}
+          >
+            <option value="">
+              {providerValue === '' ? '跟随会话主模型' : '该供应商未配模型，跟随其默认'}
+            </option>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name ?? model.id}
+              </option>
+            ))}
+            {value !== '' && !known ? <option value={value}>{`${value}（不在已配置列表）`}</option> : null}
+          </select>
+        );
+      }
+    }
+
+    return (
+      <Input
+        value={value}
+        disabled={disabled}
+        aria-invalid={isInvalid(desc) || undefined}
+        onChange={(event) => stage(desc.field, event.target.value)}
+      />
+    );
+  };
+
   const save = async (): Promise<void> => {
     setBusy(true);
     setFailed(false);
@@ -260,12 +486,7 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
             {desc.label}
             {overridden ? <span style={overriddenBadgeStyle}>已覆盖</span> : null}
           </span>
-          <Input
-            value={draftText(desc)}
-            disabled={!writable}
-            aria-invalid={fieldInvalid || undefined}
-            onChange={(event) => stage(desc.field, event.target.value)}
-          />
+          {renderControl(desc)}
           <Button
             variant="ghost"
             size="sm"
@@ -277,6 +498,11 @@ export function SettingsCard({ scope }: SettingsCardProps): React.JSX.Element | 
           </Button>
         </div>
         {desc.hint === undefined ? null : <div style={hintStyle}>{desc.hint}</div>}
+        {desc.field === 'provider' && directory.status === 'unavailable' ? (
+          <div style={hintStyle}>
+            {`未能读取已配置的模型列表（${directory.reason}），这两行已退回手动输入`}
+          </div>
+        ) : null}
         {fieldInvalid ? <div style={{ ...hintStyle, color: 'var(--dsw-alias-label-error, #d9534f)' }}>这里需要一个整数</div> : null}
       </div>
     );

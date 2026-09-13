@@ -11,9 +11,35 @@
 
 ---
 
-## 当前版本：v0.4.1
+## 当前版本：v0.4.2
 
-### v0.4.1（本次）
+### v0.4.2（本次）
+
+provider / model 改成**只能选的下拉**，选项来自用户已经配好的模型。
+
+**为什么**：原先让用户手打 provider 与 model id，等于把「哪个供应商配了哪些模型」这件事
+在插件里重录一遍；而手打错一个字母的后果是运行时调用失败。
+
+**数据源**（都在客户端可得，不需要新增依赖）：
+
+- `remote.llm.listProviders()` —— 当前已注册的路由（`{ id, name }`）
+- `remote.llm.listConfigurableProviders()` —— 已声明可配置的路由，带 `displayName`、
+  `settingsNs`、`settingsPath`
+- **具体配了哪些模型不在上面两个接口里**，而在各 provider 自己的 settings section：
+  按 `settingsNs` 从设置镜像（`settingsScope.describe()`）找到 `SettingsNamespaceView`，
+  读它的 `value`（`SettingsNamespaceView.value` 就是「schema 默认值 → 组合层 → 用户层」
+  解析后的结果），再按 `settingsPath` 走进去取 `models` 数组。
+  这点由官方 `ModelListEditor` 的注释确认：the profile's `models` array。
+
+**降级**：模型页那个包（`dsh-client-ui-settings-models`）**没有对外暴露可复用服务**
+（无 cordis 服务增强，导出都是页面内部类型与 store，跨插件值导入又会被纯度闸门拒绝），
+所以目录得我们自己拼。任何一步拿不到（llm 远端不存在、镜像读不到、profile 结构对不上）
+就**把这两行退回文本输入**并在下方说明原因 —— 最坏情况等于 v0.4.1 的行为，不会把用户卡死。
+
+**细节**：换供应商时清掉已选模型，避免留下属于上一个供应商的 model id；
+当前值不在候选里时额外插一条「（不在已配置列表）」选项，防止 select 显示空白。
+
+### v0.4.1
 
 设置卡片两处修复。
 

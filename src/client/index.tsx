@@ -15,7 +15,7 @@ import { Button, IconEditOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-p
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 
 import { SETTINGS_NS, SettingsCard } from './settings-card';
-import type { PluginConfig } from './settings-card';
+import type { LlmDirectory, PluginConfig } from './settings-card';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -183,17 +183,25 @@ export function apply(ctx: Context): void {
     console.info(`${LOG} 已注册「生成标题」到 ${SLOT}`);
   });
 
+  // 模型目录：provider 列表与每个 provider 已配置的模型都来自 llm 远端命名空间
+  // 加设置镜像。拿不到就只是「两行退回文本输入」，不影响其它配置。
+  let llmDirectory: LlmDirectory | undefined;
+  ctx.inject(['remote', 'remote.llm'], (sub) => {
+    llmDirectory = sub.remote.llm as unknown as LlmDirectory;
+  });
+
   // 设置卡片：host 半用同一个命名空间注册 settings section，这里按命名空间注册卡片，
   // 设置页的「插件」标签页会遍历已服务的命名空间并自动配对渲染。
   ctx.inject(['slots', 'settingsScope'], (sub) => {
     const scope = sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS });
+    const describe = sub.settingsScope.describe();
     sub.slots.inject('settings.plugin.item', () =>
       sub.slots.register(
         {
           name: 'settings.plugin.item',
           // keyed 槽位用 key 声明本条贡献给哪个命名空间（list 才是 id/order）。
           key: SETTINGS_NS,
-          inject: () => ({ scope }),
+          inject: () => ({ scope, describe, getLlm: () => llmDirectory }),
         },
         SettingsCard,
       ),
