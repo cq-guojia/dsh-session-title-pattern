@@ -535,7 +535,22 @@ export function SettingsCard({
     return draft !== undefined && desc.spec.parse(draft) === undefined;
   };
 
-  const dirty = Object.keys(drafts).length > 0;
+  /**
+   * 这个字段的草稿和**已经保存的值**不一样吗？
+   *
+   * 注意判据不是「动过输入框」，而是「值变了」：把 80 改成 90 再改回 80，
+   * 不该继续挂着「未保存」。
+   */
+  const draftDiffers = (desc: FieldDesc): boolean => {
+    const draft = drafts[desc.field];
+    if (draft === undefined) return false;
+    const write = desc.spec.parse(draft);
+    // 解析不了的草稿（比如输了个半成品）算改动：保存按钮要亮着，
+    // 用户才收得到「这里需要一个整数」的提示。
+    if (write === undefined) return true;
+    return !sameValue(write.kind === 'clear' ? undefined : write.value, section[desc.field]);
+  };
+  const dirty = FIELDS.some(draftDiffers);
   // 厂家下面一个模型都没有时也保存不过：host 的「成对」校验会拒（provider 有值、model 没有）。
   const invalid = FIELDS.some(isInvalid) || pairBlocked;
 
@@ -688,15 +703,14 @@ export function SettingsCard({
                 aria-label="用哪个模型总结标题"
                 onChange={(event) => stage(modelDesc.field, event.target.value)}
               >
-                {models.length === 0 ? (
-                  <option value="">（这家没有可选模型）</option>
-                ) : (
-                  models.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.name ?? entry.id}
-                    </option>
-                  ))
-                )}
+                {/* 没有模型就是一个空框：不写字，空着本身就说明问题了。
+                    仍给一个空选项，免得受控 select 的 value 匹配不上任何 option。 */}
+                {models.length === 0 ? <option value="" /> : null}
+                {models.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name ?? entry.id}
+                  </option>
+                ))}
               </select>
             </>
           )}
