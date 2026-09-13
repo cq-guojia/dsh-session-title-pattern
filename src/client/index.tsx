@@ -118,6 +118,13 @@ function GenerateTitleAction({
   // 锁定态只有本地记忆：平台的标题投影不带来源，刷新页面后按未锁定显示。
   const [locked, setLocked] = useState(false);
   const wrapRef = useRef<HTMLSpanElement | null>(null);
+  /**
+   * 卡片左缘相对锚点的横向偏移：对齐**会话标题的左缘**，而不是右缘贴着铅笔按钮
+   * —— 贴右会让卡片向左伸过标题、左半截压进侧边栏底下（实机反馈）。
+   * 标题元素用 `_crumbCurrent` 定位（与 crumbWidth 覆盖同一个识别方式）；
+   * 找不到就退回 0（贴着铅笔右对齐的旧定位），宁歪勿丢。
+   */
+  const [panelLeft, setPanelLeft] = useState<number | null>(null);
 
   const close = (): void => setOpen(false);
 
@@ -125,6 +132,14 @@ function GenerateTitleAction({
   // 自绘一个浮层反而更可控（样式内联，不依赖额外注入）。
   useEffect(() => {
     if (!open) return;
+    const anchor = wrapRef.current;
+    if (anchor === null) return;
+    const crumb = document.querySelector('[class*="_crumbCurrent"]');
+    if (crumb !== null) {
+      setPanelLeft(crumb.getBoundingClientRect().left - anchor.getBoundingClientRect().left);
+    } else {
+      setPanelLeft(null);
+    }
     const onDown = (event: MouseEvent): void => {
       if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) {
         setOpen(false);
@@ -212,9 +227,11 @@ function GenerateTitleAction({
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
-            right: 0,
+            // 左缘对齐会话标题（打开时实测的偏移）；取不到标题元素时退回贴锚点。
+            left: panelLeft ?? 0,
             zIndex: 30,
             width: 420,
+            maxWidth: 'calc(100vw - 48px)',
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
