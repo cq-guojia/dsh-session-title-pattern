@@ -404,10 +404,52 @@ export function apply(ctx: Context): void {
   });
 
   /**
+   * 从远端回答里取出 `CommandResult`。
+   *
+   * 远端通道**实际**返回什么，本地验证不了：消费 `TYPERT_REMOTE` 的运行时在 dsh
+   * 里，不在 node_modules。而实测出现过「host 明明执行了（标题改了 / 会话里出了
+   * 命令结果），客户端却拿到一个读不出 `result` 的东西」—— 于是草稿填不进输入框、
+   * 锁定态也读不回来。
+   *
+   * 所以这里按可能的封装逐层剥，认出 `kind` 就算成功：
+   *   `{ commandId, result }`  —— 描述符声明的形状
+   *   `{ kind, text }`         —— 直接就是 CommandResult
+   *   `{ ok, value }` / `{ value }` —— 传输层再包一层
+   * 认不出就把原始结构打进控制台，下次不必再猜。
+   */
+  const readCommandResult = (raw: unknown): { kind: string; text?: string } | undefined => {
+    let node: unknown = raw;
+    for (let depth = 0; depth < 3; depth += 1) {
+      if (node === null || typeof node !== 'object') return undefined;
+      const record = node as Record<string, unknown>;
+      if (typeof record.kind === 'string') {
+        return {
+          kind: record.kind,
+          text: typeof record.text === 'string' ? record.text : undefined,
+        };
+      }
+      const next = record.result ?? record.value;
+      if (next === undefined) return undefined;
+      node = next;
+    }
+    return undefined;
+  };
+
+  /** 把任意值打成可读的一段，用于「认不出形状」时把真相打出来。 */
+  const describe = (raw: unknown): string => {
+    try {
+      return JSON.stringify(raw) ?? String(raw);
+    } catch {
+      return String(raw);
+    }
+  };
+
+  /**
    * 面板与按钮的所有动作都收敛到这一条：往会话发命令行。
    *
-   * 命令成功时把结果文本 resolve 回去（「自动生成」靠它拿草稿标题）；
-   * 失败记控制台并 resolve undefined —— 界面保持原状，host 侧留有日志。
+   * 命令成功时把结果文本 resolve 回去（「自动生成」靠它拿草稿标题、
+   * 「锁定态」靠它拿 locked/unlocked）；失败记控制台并 resolve undefined ——
+   * 界面保持原状，host 侧留有日志。
    */
   const runLine = (sessionId: string, line: string): Promise<string | undefined> => {
     if (commands === undefined) {
@@ -417,13 +459,11 @@ export function apply(ctx: Context): void {
     return commands
       .execute(sessionId, line, [])
       .then((execution: unknown) => {
-        const result = (
-          execution as { result?: { kind: string; text?: string } } | undefined
-        )?.result;
+        const result = readCommandResult(execution);
         if (result === undefined) {
-          // execute() 对「行不以 / 开头」与「命令未注册」都返回 undefined 且不留任何日志，
-          // 这里补一条：下次再出现「点了没反应」时，控制台至少能看出是命令没命中。
-          console.warn(`${LOG} ${line} 未被执行：行必须以 / 开头，且命令名必须已注册`);
+          // 注意：这一支**不等于**命令没执行 —— host 可能已经照做了（会话里会出现
+          // 命令结果），只是我们没认出返回值。所以文案里不再断言「未被执行」。
+          console.warn(`${LOG} ${line} 未取到执行结果（原始返回：${describe(execution)}）`);
           return undefined;
         }
         if (result.kind === 'error') {
@@ -432,7 +472,10 @@ export function apply(ctx: Context): void {
         }
         return result.text;
       })
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        console.warn(`${LOG} ${line} 调用失败：${String(error)}`);
+        return undefined;
+      });
   };
 
   /**
@@ -445,8 +488,19 @@ export function apply(ctx: Context): void {
     if (commands === undefined) return;
     void commands
       .list(sessionId)
-      .then((entries: readonly { name: string }[]) => {
-        const known = new Set(entries.map((entry) => entry.name));
+      .then((raw: unknown) => {
+        // 同样是「实际形状未知」：可能是裸数组，也可能包了一层 `{ value }`。
+        const node = (raw as { value?: unknown } | null) ?? null;
+        const entries = Array.isArray(raw) ? raw : Array.isArray(node?.value) ? node?.value : undefined;
+        if (entries === undefined) {
+          console.warn(`${LOG} 未能读取命令列表（原始返回：${describe(raw)}）`);
+          return;
+        }
+        const known = new Set(
+          (entries as readonly { name?: unknown }[]).map((entry) =>
+            typeof entry?.name === 'string' ? entry.name : '',
+          ),
+        );
         const missing = REQUIRED_COMMANDS.filter((name) => !known.has(name));
         if (missing.length > 0) {
           console.warn(`${LOG} 命令未注册（点了会没反应）：${missing.join('、')}`);
