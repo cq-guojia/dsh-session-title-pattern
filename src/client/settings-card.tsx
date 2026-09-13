@@ -27,7 +27,7 @@ export interface PluginConfig {
   model?: string;
   timeoutMs?: number;
   maxOutputTokens?: number;
-  separator?: string;
+  template?: string;
   maxBytes?: number;
 }
 
@@ -44,7 +44,7 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   model: '',
   timeoutMs: 15_000,
   maxOutputTokens: 64,
-  separator: '｜',
+  template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
 };
 
@@ -169,7 +169,7 @@ const FIELDS: readonly FieldDesc[] = [
   {
     field: 'retitleEvery',
     label: '每隔几条对话重算一次',
-    hint: '每多少条人类消息重新总结一次标题（条）',
+    hint: '0 = 只在新建会话时算一次，之后不自动更新（可随时点标题旁的按钮手动重算）',
     spec: numberField,
     modelOnly: true,
   },
@@ -191,7 +191,14 @@ const FIELDS: readonly FieldDesc[] = [
     spec: numberField,
     modelOnly: true,
   },
-  { field: 'separator', label: '分隔符', hint: '标题各段之间的分隔符', spec: textField },
+  {
+    field: 'template',
+    label: '标题格式',
+    hint:
+      '占位符：{YYYY} {MM} {DD} {HH} {mm} {ss} {type} {topic}。' +
+      '日期部件可任意拼接（如 {MMDD}、{YYYYMMDD}）；不写 {type} 就没有分类，不写 {topic} 就没有主题',
+    spec: textField,
+  },
   {
     field: 'maxBytes',
     label: '标题长度上限',
@@ -749,7 +756,7 @@ export function SettingsCard({
                 modeDesc,
                 modelMode
                   ? undefined
-                  : '已改用关键词规则：类型按关键词匹配得出、主题取首条消息原文，标题不会随对话更新。下面的分隔符与长度上限仍然有效。',
+                  : '已改用关键词规则：类型按关键词匹配得出、主题取首条消息原文，标题不会随对话更新。下面的标题格式与长度上限仍然有效。',
               )}
           {visibleFields
             .filter((desc) => desc.field !== 'mode')

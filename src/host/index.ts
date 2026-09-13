@@ -16,11 +16,11 @@ import type {} from '@deepseek-ai/dsh-settings';
 import { callTitleModel, parseTitleLine, toSummary } from './llm';
 import type { LlmService } from './llm';
 import {
+  DEFAULT_TITLE_TEMPLATE,
   FALLBACK_TYPE,
   buildRuleTitle,
   classifyMessage,
   composeTitle,
-  formatPatternDate,
 } from './rules';
 
 export const name = 'dsh-session-title-pattern';
@@ -52,8 +52,15 @@ const RETITLE_COMMAND = 'retitle';
 const MAX_TRACKED_SESSIONS = 64;
 
 export interface Config {
-  /** 标题各段之间的分隔符。 */
-  separator: string;
+  /**
+   * 标题格式模板。
+   *
+   * 可用占位符：`{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` `{type}` `{topic}`，
+   * 日期时间部件可任意拼接（`{MMDD}`、`{YYYYMMDD}`、`{HHmmss}`）；
+   * **不写 `{type}` 标题里就没有分类**，不写 `{topic}` 就没有主题。
+   * 语法与示例见 `./rules` 的 `formatTitle()`。
+   */
+  template: string;
   /**
    * 标题总长度上限（UTF-8 字节）。
    *
@@ -63,7 +70,12 @@ export interface Config {
   maxBytes: number;
   /** `llm` 用模型总结类型与主题；`rules` 回到零 token 的关键词规则。 */
   mode: 'llm' | 'rules';
-  /** 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。 */
+  /**
+   * 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。
+   *
+   * **0 表示只在新建会话（首条消息）时算一次，之后不再自动更新** ——
+   * 想更新时点标题旁的按钮，或敲 `/retitle`。
+   */
   retitleEvery: number;
   /** 显式指定的模型 provider；与 `model` 必须成对，留空则跟随会话主模型。 */
   provider: string;
@@ -78,10 +90,11 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  separator: z.string().default('｜'),
+  template: z.string().default(DEFAULT_TITLE_TEMPLATE),
   maxBytes: z.number().step(1).min(20).default(80),
   mode: z.union([z.const('llm'), z.const('rules')]).default('llm'),
-  retitleEvery: z.number().step(1).min(1).default(5),
+  // min(0)：0 = 不自动重算，只在首条消息时生成一次。
+  retitleEvery: z.number().step(1).min(0).default(5),
   provider: z.string().default(''),
   model: z.string().default(''),
   timeoutMs: z.number().step(1).min(1).default(15_000),
@@ -190,7 +203,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
           : first !== undefined
             ? classifyMessage(first)
             : FALLBACK_TYPE;
-      const title = composeTitle(formatPatternDate(new Date()), type, parsed.topic, config);
+      const title = composeTitle(new Date(), type, parsed.topic, config);
 
       state.summary = toSummary(text);
       state.seenCount = request.messages.length;
@@ -253,6 +266,9 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
  * 服务只会在**首条**人类消息时自动调用 provider（`first-prompt`），后续轮次
  * 需要我们自己在 `session/event` 上数：每满 `retitleEvery` 条就显式 `refresh()`
  * 一次。这样非重算轮根本不会被调用，也不会写重复的标题事件。
+ *
+ * `retitleEvery` 为 0 时整个自动重算关掉：标题只在首条消息时生成一次，
+ * 之后想更新只能手动（`/retitle`，或标题旁的按钮）。
  */
 function trackRecomputes(
   ctx: Context,
@@ -271,6 +287,8 @@ function trackRecomputes(
     state.count += 1;
     if (!states.has(session.id)) remember(states, session.id, state);
 
+    // 0 = 不自动重算。显式挡掉而不是靠取模：`x % 0` 是 NaN，靠它挡属于撞运气。
+    if (config.retitleEvery <= 0) return;
     // 第 1 条走服务的自动调度，这里不重复触发。
     if (state.count < 2 || state.count % config.retitleEvery !== 0) return;
     // 用户手动重命名过的会话处于 pinned 状态，不再自动接管（与服务的自动调度口径一致）。

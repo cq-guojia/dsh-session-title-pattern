@@ -11,8 +11,15 @@ export declare const name = "dsh-session-title-pattern";
  */
 export declare const inject: readonly ["sessionTitle"];
 export interface Config {
-  /** 标题各段之间的分隔符。 */
-  separator: string;
+  /**
+   * 标题格式模板。
+   *
+   * 可用占位符：`{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` `{type}` `{topic}`，
+   * 日期时间部件可任意拼接（`{MMDD}`、`{YYYYMMDD}`、`{HHmmss}`）；
+   * **不写 `{type}` 标题里就没有分类**，不写 `{topic}` 就没有主题。
+   * 语法与示例见 `./rules` 的 `formatTitle()`。
+   */
+  template: string;
   /**
    * 标题总长度上限（UTF-8 字节）。
    *
@@ -22,7 +29,12 @@ export interface Config {
   maxBytes: number;
   /** `llm` 用模型总结类型与主题；`rules` 回到零 token 的关键词规则。 */
   mode: 'llm' | 'rules';
-  /** 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。 */
+  /**
+   * 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。
+   *
+   * **0 表示只在新建会话（首条消息）时算一次，之后不再自动更新** ——
+   * 想更新时点标题旁的按钮，或敲 `/retitle`。
+   */
   retitleEvery: number;
   /** 显式指定的模型 provider；与 `model` 必须成对，留空则跟随会话主模型。 */
   provider: string;
