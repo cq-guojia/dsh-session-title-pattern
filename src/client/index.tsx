@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Context } from '@deepseek-ai/cordis';
 // 下面几个只为拿到类型增强（SlotMap / SessionStandardProps / ctx.remote），
 // 全部是 type-only，运行时不会引入，因此不会触发客户端产物纯度闸门。
@@ -45,6 +46,12 @@ const ENTRY_ID = 'generate-title';
 /** 触发 host 端重算的命令行。 */
 const RETITLE_LINE = '/retitle';
 
+/** 手动改名命令（host 端注册）：写入「用户」来源的标题，写入即进入锁定态。 */
+const RENAME_LINE = 'title-rename';
+
+/** 锁定命令：把当前标题以「用户」来源写回，停止自动更新。 */
+const LOCK_LINE = 'title-lock';
+
 /** 浏览器控制台前缀，便于排查。 */
 const LOG = '[dsh-session-title-pattern]';
 
@@ -72,6 +79,10 @@ type RemoteCommands = Context['remote']['commands'];
 type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   /** 由注册项的 inject factory 注入：对当前会话执行 /retitle。 */
   generate: () => void;
+  /** 手动改名（host 端截断到标题上限；写入即自动锁定）。 */
+  rename: (title: string) => void;
+  /** 锁定当前标题（内容不变，停止自动更新）。 */
+  lock: () => void;
 };
 
 /**
@@ -82,28 +93,136 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
  */
 const ACTION_LABEL = '根据对话重新生成标题';
 
-function GenerateTitleAction({ useSession, generate }: HeaderActionProps) {
+function GenerateTitleAction({
+  useSession,
+  generate,
+  rename,
+  lock,
+}: HeaderActionProps) {
   // 会话正在跑时禁用，避免与正在生成的标题竞争。
   const running = useSession((snapshot) => snapshot.running);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
+
+  // 点面板外面就收起。原生的 Menu 组件存在，但锚定 API 未在类型里稳定导出，
+  // 自绘一个 12 行的浮层反而更可控（样式内联，不依赖额外注入）。
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent): void => {
+      if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const act = (action: () => void): void => {
+    setOpen(false);
+    action();
+  };
+
+  const submitRename = (): void => {
+    const text = draft.trim();
+    if (text.length === 0) return;
+    setDraft('');
+    act(() => rename(text));
+  };
+
   return (
     // 用官方 Tooltip，与侧边栏开关等内置按钮同款。
     // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，而 Button 是普通函数
     // 组件、不转发 ref，直接套会定位不到气泡。
-    <Tooltip label={ACTION_LABEL} side="bottom" delayMs={500}>
-      <span style={{ display: 'inline-flex' }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<IconEditOutline16 size={16} />}
-          disabled={running}
-          onClick={generate}
-          // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
-          title={running ? '会话回复中，暂不能重新生成标题' : undefined}
-          // 图标按钮没有可见文字，无障碍标签必须给。
-          aria-label={ACTION_LABEL}
-        />
-      </span>
-    </Tooltip>
+    <span ref={wrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <Tooltip label={ACTION_LABEL} side="bottom" delayMs={500}>
+        <span style={{ display: 'inline-flex' }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconEditOutline16 size={16} />}
+            disabled={running}
+            onClick={() => setOpen((value) => !value)}
+            // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
+            title={running ? '会话回复中，暂不能重新生成标题' : undefined}
+            // 图标按钮没有可见文字，无障碍标签必须给。
+            aria-label={ACTION_LABEL}
+          />
+        </span>
+      </Tooltip>
+      {open ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            right: 0,
+            zIndex: 30,
+            width: 260,
+            padding: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            background: 'var(--dsw-alias-bg-layer-2)',
+            border: '.5px solid var(--dsw-alias-border-l4)',
+            borderRadius: 12,
+            boxShadow: '0 8px 24px rgb(0 0 0 / 18%)',
+          }}
+        >
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => act(generate)}
+            style={{
+              appearance: 'none', font: 'inherit', textAlign: 'left', cursor: 'pointer',
+              background: 'transparent', border: 'none', borderRadius: 8, padding: '6px 8px',
+              color: 'var(--dsw-alias-label-primary)', fontSize: 13,
+            }}
+          >
+            根据对话重新生成
+          </button>
+          <button
+            type="button"
+            onClick={() => act(lock)}
+            style={{
+              appearance: 'none', font: 'inherit', textAlign: 'left', cursor: 'pointer',
+              background: 'transparent', border: 'none', borderRadius: 8, padding: '6px 8px',
+              color: 'var(--dsw-alias-label-primary)', fontSize: 13,
+            }}
+          >
+            锁定当前标题（停止自动更新）
+          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              value={draft}
+              placeholder="手动改标题，回车确认"
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submitRename();
+              }}
+              style={{
+                boxSizing: 'border-box', flex: 1, minWidth: 0, height: 30, font: 'inherit',
+                color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-3)',
+                border: '.5px solid var(--dsw-alias-border-l4)', borderRadius: 8,
+                padding: '0 8px', fontSize: 13,
+              }}
+            />
+            <button
+              type="button"
+              disabled={draft.trim() === ''}
+              onClick={submitRename}
+              style={{
+                appearance: 'none', font: 'inherit', cursor: draft.trim() === '' ? 'default' : 'pointer',
+                border: '1px solid #0000', borderRadius: 8, padding: '0 10px', fontSize: 13,
+                background: 'var(--dsw-alias-label-primary)', color: 'var(--dsw-alias-bg-layer-3)',
+                opacity: draft.trim() === '' ? 0.4 : 1,
+              }}
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </span>
   );
 }
 
@@ -166,6 +285,15 @@ export function apply(ctx: Context): void {
     commands = sub.remote.commands;
   });
 
+  // 面板与按钮的所有动作都收敛到这一条：往会话发命令行，失败静默（host 侧有日志）。
+  const runLine = (sessionId: string, line: string): void => {
+    if (commands === undefined) {
+      console.warn(`${LOG} remote.commands 尚未就绪，无法执行 ${line}`);
+      return;
+    }
+    void commands.execute(sessionId, line, []).catch(() => undefined);
+  };
+
   ctx.inject(['slots'], (sub) => {
     // slots.inject 等待 owner 声明该 slot，owner 折叠时贡献自动移除。
     sub.slots.inject(SLOT, () =>
@@ -177,22 +305,15 @@ export function apply(ctx: Context): void {
           // factory 在 apply 世界中运行；session scope 的 slot 会收到框架
           // 解析出的 sessionId。
           inject: (sessionId) => ({
-            generate: () => {
-              if (commands === undefined) {
-                console.warn(`${LOG} remote.commands 尚未就绪，无法执行 ${RETITLE_LINE}`);
-                return;
-              }
-              void commands
-                .execute(sessionId, RETITLE_LINE, [])
-                // 失败交由 host 侧的 command/done 记录，这里静默即可。
-                .catch(() => undefined);
-            },
+            generate: () => runLine(sessionId, RETITLE_LINE),
+            rename: (title: string) => runLine(sessionId, `${RENAME_LINE} ${title}`),
+            lock: () => runLine(sessionId, LOCK_LINE),
           }),
         },
         GenerateTitleAction,
       ),
     );
-    console.info(`${LOG} 已注册「生成标题」到 ${SLOT}`);
+    console.info(`${LOG} 已注册标题面板到 ${SLOT}`);
   });
 
   // 模型目录：provider 列表与每个 provider 已配置的模型都来自 llm 远端命名空间

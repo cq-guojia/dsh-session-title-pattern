@@ -22,6 +22,7 @@ import {
   classifyMessage,
   composeTitle,
 } from './rules';
+import { foldSessionTitle, normalizeSessionTitle } from '@deepseek-ai/dsh-session-title';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -42,6 +43,12 @@ const SETTINGS_NS = 'session-title-pattern';
 
 /** 手动重算标题的命令名（不含斜杠）。 */
 const RETITLE_COMMAND = 'retitle';
+
+/** 手动改名命令：写入「用户」来源的标题，写入即进入锁定态。 */
+const RENAME_COMMAND = 'title-rename';
+
+/** 锁定命令：把当前标题以「用户」来源写回（内容不变），停止自动更新。 */
+const LOCK_COMMAND = 'title-lock';
 
 /**
  * 同时跟踪的会话上限。
@@ -122,6 +129,8 @@ interface SessionState {
   seenCount: number;
   /** 本会话已见过的人类消息条数，用于判断是否到了重算轮次。 */
   count: number;
+  /** 是否已从会话日志恢复过一次（进程重启后内存态归零，首次用到时恢复）。 */
+  restored: boolean;
 }
 
 /** 写入并按插入顺序淘汰最旧的一条，避免长期运行内存无界。 */
@@ -174,7 +183,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
   private stateOf(id: string): SessionState {
     const existing = this.states.get(id);
     if (existing !== undefined) return existing;
-    const created: SessionState = { mainLine: '', summary: '', seenCount: 0, count: 0 };
+    const created: SessionState = { mainLine: '', summary: '', seenCount: 0, count: 0, restored: false };
     remember(this.states, id, created);
     return created;
   }
@@ -189,6 +198,22 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     }
 
     const state = this.stateOf(request.session.id);
+    // 进程重启后内存态归零：从会话日志把上一次的标题找回来当锚。
+    // 标题是「日期｜类型｜主题」，去掉日期段就是上次的 类型|主题；主题同时兼任主线 ——
+    // 近似恢复，足够把方向锚住。每个进程生命周期只做一次（restored 标记）。
+    if (!state.restored) {
+      state.restored = true;
+      if (state.summary === '' && state.mainLine === '') {
+        const snapshot = foldSessionTitle(request.session.snapshotEvents());
+        if (snapshot !== undefined) {
+          const parts = snapshot.title.split(/[|｜]/).map((part) => part.trim()).filter((part) => part.length > 0);
+          if (parts.length >= 3) {
+            state.summary = `${parts[1]}|${parts.slice(2).join('｜')}`;
+            state.mainLine = parts.slice(2).join('｜');
+          }
+        }
+      }
+    }
 
     try {
       const llm = this.getLlm();
@@ -246,6 +271,50 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       throw error;
     }
   }
+}
+
+/**
+ * 注册改名 / 锁定命令（设置面板与标题旁的面板都走它们）。
+ *
+ * 锁定的实现：`rename()` 写入的标题来源是「用户」，自动命名随即停止 —— 这是平台的
+ * 既有语义，所以「锁定不改字」就是把当前标题原样写回。解锁 = `/retitle`（refresh
+ * 会覆盖已固定的用户标题，文档明确这是解锁路径）。
+ */
+function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void {
+  ctx.effect(() =>
+    ctx.commands.register({
+      name: RENAME_COMMAND,
+      description: '手动修改会话标题（写入后自动锁定，停止自动更新）',
+      handler: ({ agent, rawInput }) => {
+        const text = normalizeSessionTitle(rawInput.trim(), getConfig().maxBytes);
+        // 空输入与超长（会被 maxBytes 截到空）都直接忽略；截断兜底让 rename 不会因长度抛错。
+        if (text.length === 0) return { kind: 'error', text: '标题内容为空，已忽略' };
+        try {
+          ctx.sessionTitle.rename(agent.session, text);
+          return { kind: 'success', text: '已更新标题并锁定（自动更新停止）' };
+        } catch (error) {
+          return { kind: 'error', text: `修改标题失败：${String(error)}` };
+        }
+      },
+    }),
+  );
+  ctx.effect(() =>
+    ctx.commands.register({
+      name: LOCK_COMMAND,
+      description: '锁定当前会话标题（停止自动更新）',
+      handler: ({ agent }) => {
+        const snapshot = ctx.sessionTitle.get(agent.session);
+        if (snapshot === undefined) return { kind: 'error', text: '当前会话还没有标题' };
+        try {
+          // 把当前标题以「用户修改」的名义写回：内容不变，但进入锁定态。
+          ctx.sessionTitle.rename(agent.session, snapshot.title);
+          return { kind: 'success', text: '已锁定标题（自动更新停止）' };
+        } catch (error) {
+          return { kind: 'error', text: `锁定失败：${String(error)}` };
+        }
+      },
+    }),
+  );
 }
 
 /**
@@ -312,7 +381,8 @@ function trackRecomputes(
     // 也不参与重算 —— 否则每次 fork 都要多付一次模型调用。
     if (session.header.parentSession !== undefined) return;
 
-    const state = states.get(session.id) ?? { mainLine: '', summary: '', seenCount: 0, count: 0 };
+    const state =
+      states.get(session.id) ?? { mainLine: '', summary: '', seenCount: 0, count: 0, restored: false };
     state.count += 1;
     if (!states.has(session.id)) remember(states, session.id, state);
 
@@ -414,6 +484,7 @@ export function apply(ctx: Context, config: Config): void {
 
   // 不按「当时的模式」决定要不要挂订阅：模式可以在设置里随时切换。
   trackRecomputes(ctx, currentConfig, states);
+  registerTitleEditCommands(ctx, currentConfig);
 
   // commands 由 dsh-base 提供，但绝不能写进 inject 声明：组合里一旦没有命令服务，
   // 声明式依赖会让本 entry 永远 pending，而 pending 的 entry 会让 dsh 启动失败。

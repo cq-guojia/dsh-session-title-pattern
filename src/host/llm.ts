@@ -41,7 +41,9 @@ const SYSTEM_PROMPT = [
   '输出两行，除这两行外不要输出任何内容：',
   '第一行：主线。一句话概括这段会话从头到尾**主要在干什么**。',
   '  如果输入里给了 mainLine：会话目标没有变化时**原样返回**，不要改写；',
-  '  只有主线真的变了（转向了新目标）才更新它。',
+  '  mainLine 是这段会话**最初的最大目标** —— 解决主线过程中产生的报错、bug、调试，',
+  '  都是主线的**子任务**，不属于目标变化。不要因为最近一直在修 bug 就把主线改成「调试×××」；',
+  '  只有出现和原目标并列的全新目标时才更新主线。',
   '第二行：类型|主题。',
   '  - 类型：两个汉字概括这段会话主要在做什么，例如「编程」「生成」「排查」「咨询」「文档」「配置」。',
   '    这些词只是方向示例，不要被它们限制，可以给出更贴切的类型。',
@@ -143,11 +145,24 @@ export function buildPromptInput(
   const fresh = messages.slice(Math.max(state.seenCount, 1));
   const previousSummary = oneLine(truncateTitleUtf8(state.summary, SUMMARY_MAX_BYTES));
 
+  // 等距采样：从「新鲜窗口之前」的历史里抽两条，让模型看到会话怎么演化 ——
+  // 长会话归纳、重启后恢复（seenCount 归零、历史全部回到新鲜窗口之外）时尤其重要。
+  const history = messages.slice(1, Math.max(state.seenCount, 1));
+  const samples: string[] = [];
+  if (history.length > 3) {
+    const middle = history.length - 1;
+    for (const index of new Set([Math.floor(middle / 3), Math.floor((middle * 2) / 3)])) {
+      const text = oneLine(truncateTitleUtf8(history[index]?.text ?? '', 200));
+      if (text.length > 0) samples.push(text);
+    }
+  }
+
   const frame = (newMessages: string[]): string => {
     const payload: Record<string, unknown> = { firstMessage };
     // mainLine 是抗漂移的锚：模型上一轮判断的主线，这一轮原样带回、由它决定要不要改。
     if (state.mainLine.length > 0) payload.mainLine = state.mainLine;
     if (previousSummary.length > 0) payload.previousSummary = previousSummary;
+    if (samples.length > 0) payload.sampledHistory = samples;
     payload.newMessages = newMessages;
     return `根据以下 JSON 生成会话标题：\n${JSON.stringify(payload)}`;
   };
