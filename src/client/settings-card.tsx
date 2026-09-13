@@ -186,7 +186,7 @@ const FIELDS: readonly FieldDesc[] = [
   },
   {
     field: 'maxOutputTokens',
-    label: '模型最多写多少',
+    label: '输出标题最大Token',
     hint: '单位是 token，64 大致相当于 100 个汉字。标题只占一行，这一项只是防止模型啰嗦，一般不用改',
     spec: numberField,
     modelOnly: true,
@@ -476,6 +476,43 @@ export function SettingsCard({
   const draftText = (desc: FieldDesc): string =>
     drafts[desc.field] ?? desc.spec.format(section[desc.field]);
 
+  const providerDesc = FIELDS.find((desc) => desc.field === 'provider');
+  const modelDesc = FIELDS.find((desc) => desc.field === 'model');
+
+  /**
+   * 「厂家 + 具体模型」这一对的当前取值。
+   *
+   * 规则：**具体模型不允许留空，必须是列表里的某一个**。所以这里把「已保存/草稿里的
+   * 模型值」解析成一个**可用值**：
+   * - 厂家已选且该值就在这家的模型列表里 → 用它
+   * - 不在列表里（比如刚换了厂家）→ 落到**第一个**
+   * - 目录读不到（`pairModels === undefined`）→ 原样保留，退回手动输入
+   */
+  const pairProvider = providerDesc === undefined ? '' : draftText(providerDesc);
+  const pairModels =
+    directory.status === 'ready'
+      ? (directory.routes.find((route) => route.provider === pairProvider)?.models ?? [])
+      : undefined;
+  const pairModel = modelDesc === undefined ? '' : draftText(modelDesc);
+  const pairModelResolved =
+    pairModels === undefined || pairModels.some((entry) => entry.id === pairModel)
+      ? pairModel
+      : (pairModels[0]?.id ?? '');
+  /** 厂家已选、但这家一个模型都没有：无从选起，保存也过不去。 */
+  const pairBlocked = pairModels !== undefined && pairProvider !== '' && pairModels.length === 0;
+
+  useEffect(() => {
+    // 保证「界面上看到的」永远等于「保存后会写进去的」：
+    // - 厂家为空（跟随对话模型）时具体模型必须一起清掉，否则两端不成对，host 会拒绝写入
+    // - 厂家已选而模型为空/不属于这家时，自动落到第一个
+    if (pairProvider === '') {
+      if (pairModel !== '') setDrafts((previous) => ({ ...previous, provider: '', model: '' }));
+      return;
+    }
+    if (pairModelResolved === '' || pairModelResolved === pairModel) return;
+    setDrafts((previous) => ({ ...previous, provider: pairProvider, model: pairModelResolved }));
+  }, [pairProvider, pairModel, pairModelResolved]);
+
   /**
    * 是否「已覆盖」。
    *
@@ -499,7 +536,8 @@ export function SettingsCard({
   };
 
   const dirty = Object.keys(drafts).length > 0;
-  const invalid = FIELDS.some(isInvalid);
+  // 厂家下面一个模型都没有时也保存不过：host 的「成对」校验会拒（provider 有值、model 没有）。
+  const invalid = FIELDS.some(isInvalid) || pairBlocked;
 
   const stage = (field: string, text: string): void => {
     setFailed(false);
@@ -568,15 +606,14 @@ export function SettingsCard({
    * 运行时调用失败，不如从根上不让输。目录读不到才退回两个文本输入。
    */
   const renderModelPair = (providerDesc: FieldDesc, modelDesc: FieldDesc): React.JSX.Element => {
-    const provider = draftText(providerDesc);
-    const model = draftText(modelDesc);
     const disabled = !writable;
     const routes = directory.status === 'ready' ? directory.routes : undefined;
-
+    // 取值统一用上面那组 pair* —— 「模型必须是列表里的某一个」的解析与自动落位都在那里做。
+    const provider = pairProvider;
+    const model = pairModelResolved;
+    const models = pairModels ?? [];
     const providerKnown = routes?.some((route) => route.provider === provider) ?? true;
-    const models = routes?.find((route) => route.provider === provider)?.models ?? [];
-    const modelKnown = models.some((entry) => entry.id === model);
-    // 跟随对话模型时，第二个框没有意义。
+    // 跟随对话模型时第二个框没有意义；这家一个模型都没有时也无从选起。
     const following = provider === '';
     const overridden = isOverridden(providerDesc) || isOverridden(modelDesc);
 
@@ -626,7 +663,10 @@ export function SettingsCard({
                 disabled={disabled}
                 aria-label="用哪家的模型总结标题"
                 onChange={(event) => {
-                  stageMany({ provider: event.target.value, model: '' });
+                  // 换了厂家，具体模型立刻落到新家的第一个 —— 这一项不允许留空。
+                  const next = event.target.value;
+                  const first = routes.find((route) => route.provider === next)?.models[0]?.id ?? '';
+                  stageMany({ provider: next, model: first });
                 }}
               >
                 <option value="">跟随对话模型</option>
@@ -643,19 +683,19 @@ export function SettingsCard({
                 className="stp-input"
                 value={model}
                 // 置灰而不是藏起来：两个框并排，藏一个会让布局跳动。
-                disabled={disabled || following}
+                disabled={disabled || following || models.length === 0}
                 aria-label="用哪个模型总结标题"
                 onChange={(event) => stage(modelDesc.field, event.target.value)}
               >
-                <option value="">厂家默认模型</option>
-                {models.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name ?? entry.id}
-                  </option>
-                ))}
-                {model !== '' && !modelKnown ? (
-                  <option value={model}>{`${model}（不在已配置列表）`}</option>
-                ) : null}
+                {models.length === 0 ? (
+                  <option value="">（这家没有可选模型）</option>
+                ) : (
+                  models.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name ?? entry.id}
+                    </option>
+                  ))
+                )}
               </select>
             </>
           )}
@@ -667,6 +707,9 @@ export function SettingsCard({
         ) : null}
         {directory.status === 'ready' && !directory.credentialsChecked ? (
           <p className="stp-hint">未能读取凭据状态，列表只按设置文档判断，可能多列出没配好的供应商</p>
+        ) : null}
+        {pairBlocked ? (
+          <p className="stp-invalid">这家下面没有可选模型，请换一家，或先到「模型」设置里给它配上模型</p>
         ) : null}
       </div>
     );
@@ -722,7 +765,6 @@ export function SettingsCard({
   if (!ready) return null;
 
   const modeDesc = FIELDS.find((desc) => desc.field === 'mode');
-  const modelDesc = FIELDS.find((desc) => desc.field === 'model');
   // 以草稿为准：把开关关掉后，下面那些只对模型有意义的项应当**立刻**消失，
   // 不用等保存。关掉之后没有什么可配的，留着只会让人以为还生效。
   const modelMode = modeDesc === undefined || draftText(modeDesc) !== 'rules';
