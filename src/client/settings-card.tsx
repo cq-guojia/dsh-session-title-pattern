@@ -43,7 +43,7 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   provider: '',
   model: '',
   timeoutMs: 30_000,
-  maxOutputTokens: 64,
+  maxOutputTokens: 128,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
 };
@@ -187,7 +187,7 @@ const FIELDS: readonly FieldDesc[] = [
   {
     field: 'maxOutputTokens',
     label: '输出标题最大Token',
-    hint: '单位是 token，64 大致相当于 100 个汉字。这一项只是防止模型啰嗦，一般不用改。',
+    hint: '单位是 token，128 大致相当于 200 个汉字。带推理的模型会连思考一起算，这一项只是防止模型啰嗦，一般不用改。',
     spec: numberField,
     modelOnly: true,
   },

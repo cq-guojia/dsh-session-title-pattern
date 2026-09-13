@@ -100,7 +100,9 @@ export const Config: z<Config> = z.object({
   // 30s 而不是 15s：手动重算会重置滚动状态、基于整段对话重来，再叠加免费档
   // 可能正在为主会话排队，15s 实测不够用（TimeoutReason: SESSION_TITLE_TIMEOUT）。
   timeoutMs: z.number().step(1).min(1).default(30_000),
-  maxOutputTokens: z.number().step(1).min(1).default(64),
+  // 128 而不是 64：带推理（thinking）的模型会把思考也算进 maxTokens，
+  // 64 很容易被思考吃掉、正文被截断（实测报过 `标题模型未正常结束（max-tokens）`）。
+  maxOutputTokens: z.number().step(1).min(1).default(128),
   maxInputBytes: z.number().step(1).min(1).default(4096),
 });
 
@@ -194,7 +196,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
         );
       }
       const startedAt = Date.now();
-      const { text, route, inputBytes } = await callTitleModel(llm, name, config, request, state);
+      const { text, route, inputBytes, truncated } = await callTitleModel(llm, name, config, request, state);
 
       const parsed = parseTitleLine(text);
       const first = request.messages[0];
@@ -217,6 +219,12 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
         `标题已生成（第 ${request.messages.length} 条消息，${route.provider}/${route.model}，` +
           `输入 ${inputBytes} 字节，耗时 ${Date.now() - startedAt}ms）：${title}`,
       );
+      if (truncated) {
+        this.ctx.logger(name).warn(
+          `标题模型触达输出上限（maxOutputTokens=${config.maxOutputTokens}）被截断，已改用首行；` +
+            '经常出现的话把这个值调大，或换成不带推理的模型',
+        );
+      }
       return { title, messageSeqs, model: route };
     } catch (error) {
       // 降级：**不覆盖已有标题**。服务的 runProvider 只在 provider 成功返回后才

@@ -202,7 +202,7 @@ export async function callTitleModel(
   settings: LlmSettings,
   request: SessionTitleProviderRequest,
   state: RollState,
-): Promise<{ text: string; route: LlmRoute; inputBytes: number }> {
+): Promise<{ text: string; route: LlmRoute; inputBytes: number; truncated: boolean }> {
   const route = resolveRoute(settings, request);
   const input = buildPromptInput(state, request.messages, settings.maxInputBytes);
 
@@ -234,7 +234,15 @@ export async function callTitleModel(
     call.signal.throwIfAborted();
 
     const finish = assembler.finish;
-    if (finish.kind !== 'stop') throw new Error(`标题模型未正常结束（${finish.kind}）`);
+    // `max-tokens` **不算失败**：模型可能写了超出预算的废话，也可能把预算花在了推理上
+    // （带 thinking 的模型，思考同样计入 maxTokens）。而**第一行通常已经完整** ——
+    // 我们本来就只取第一行，所以放行它比报错有用得多：报错的后果是标题永远不更新，
+    // 用户只看到「生成标题失败」，很难联想到是输出预算不够。
+    // 其余结束原因（error、被内容策略拦下等）仍然抛错，走「保留上一个标题」的降级。
+    const truncated = finish.kind === 'max-tokens';
+    if (finish.kind !== 'stop' && !truncated) {
+      throw new Error(`标题模型未正常结束（${finish.kind}）`);
+    }
 
     const blocks = assembler.blocks();
     if (blocks.some((block) => block.type === 'tool-call')) {
@@ -251,8 +259,8 @@ export async function callTitleModel(
       .trim();
     if (text.length === 0) throw new Error('标题模型没有输出任何文本');
 
-    // 顺带把输入字节数带回去：调用方用它记一条日志，成本排查全靠这个。
-    return { text, route, inputBytes: byteLength(input) };
+    // 顺带把输入字节数与「是否被截断」带回去：调用方用它们记日志。
+    return { text, route, inputBytes: byteLength(input), truncated };
   } finally {
     // 不用 `using` 语法：手动释放，避免依赖显式资源管理的编译目标。
     call[Symbol.dispose]();
