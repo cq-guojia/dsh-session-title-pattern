@@ -137,7 +137,7 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     if (actions === null) return;
     const eye = ensureEye(actions, 'session', onSessionEye);
     eye.dataset.stpId = id;
-    setEyeState(eye, isHidden, isHidden ? '取消隐藏（不再计入隐藏列表）' : '隐藏这条会话（不显示在侧边栏）');
+    setEyeState(eye, isHidden, isHidden ? '取消隐藏' : '隐藏此会话');
   };
 
   /**
@@ -169,11 +169,7 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     }
 
     const revealing = config.revealHiddenAll;
-    setEyeState(
-      eye,
-      revealing,
-      revealing ? '收起被隐藏的会话' : '显示被隐藏的会话（一次性全显示）',
-    );
+    setEyeState(eye, revealing, revealing ? '收起被隐藏的会话' : '显示被隐藏的会话');
   };
 
   function decorate(): void {

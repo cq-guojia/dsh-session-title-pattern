@@ -92,8 +92,8 @@
    会被侧边栏的 `overflow:hidden`（`regionArea` / `sectionHeader`）裁掉。做法是自己画一个
    `position:fixed` 的气泡挂在 `document.body` 上，用全局委托的 `pointerover` / `pointerout`
    驱动（按钮是动态注入、被挤掉后还会重造的，逐个绑定迟早漏一个），token 照抄官方
-   `Tooltip.module.css`。文案也改成一眼能懂的「隐藏这条会话（不显示在侧边栏）」/
-   「显示被隐藏的会话（一次性全显示）」。
+   `Tooltip.module.css`。文案只留最短的动作描述（用户反馈：括号里那些补充「太啰嗦」）：
+   会话行是「隐藏此会话」/「取消隐藏」，总开关是「显示被隐藏的会话」/「收起被隐藏的会话」。
 
 **发布通道收敛为「只有 npm」**（用户决定，与 v0.6.6 的「npm 正式 / github 测试」不同）：
 
