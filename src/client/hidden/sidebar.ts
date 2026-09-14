@@ -56,14 +56,17 @@ interface RowStats {
  *
  * 规则（唯一真源）：
  * - 没隐藏 → 原样
- * - 隐藏且被揭示 → 淡化
- * - 隐藏且当前正打开着 → **先不藏**（切走之后下一趟就按规则藏掉）
+ * - 隐藏但「开关打开」或「当前正打开着」→ 淡化
  * - 其余 → 藏
+ *
+ * 「当前正打开着」这一条只是**不把它藏起来**（正在聊的内容从侧边栏消失会让人以为
+ * 会话没了），它仍然是「已隐藏」的身分，所以照样淡化 —— 与开关打开时看到的样子
+ * 完全一致，点出去之后才按规则消失。
  */
 function rowMode(isHidden: boolean, revealed: boolean, isCurrent: boolean): RowMode {
   if (!isHidden) return 'normal';
-  if (revealed) return 'dim';
-  return isCurrent ? 'normal' : 'gone';
+  if (revealed || isCurrent) return 'dim';
+  return 'gone';
 }
 
 /** 把显示方式写进行内 style；值没变就不写，避免无谓的样式重算。 */
