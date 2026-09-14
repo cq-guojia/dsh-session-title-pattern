@@ -41,12 +41,11 @@
 | --- | --- |
 | `src/client/hidden/config.ts` | 隐藏列表的唯一真源：绑 `settingsScope` 读写同一份设置文档；**本地乐观值**广播（点一下立刻生效，不等 host 往返）；300ms 去抖 + **整体覆盖写**（读-改-写在连点下会丢写） |
 | `src/client/hidden/dom.ts` | fiber 反查 id、幂等注入眼睛（`data-stp-eye`）、样式注入、只观察侧边栏区域的 `MutationObserver`（250ms 轮询重新发现区域）、rAF 帧合并、fail-safe |
-| `src/client/hidden/sidebar.ts` | decorate 主流程：会话行 / 搜索结果行的藏与淡化、三处眼睛的注入与状态 |
+| `src/client/hidden/sidebar.ts` | decorate 主流程：会话行 / 搜索结果行的藏与淡化、两处眼睛的注入与状态 |
 | `src/client/hidden/icons.ts` | 两个内联 SVG（眼睛 / 划线眼）。用官方 `IconXxx16` 不行 —— 那是 React 组件，原生注入的节点里渲染不了 |
 
-- `src/host/index.ts`：`Config` 增加 `hiddenSessions` / `revealHiddenAll` /
-  `revealHiddenWorkspaces`（`z.dict(z.boolean())`，已实证 schemastery 与客户端设置包都支持）
-- `src/client/settings-card.tsx`：`PluginConfig` 同步三个字段；正文加**自救块**
+- `src/host/index.ts`：`Config` 增加 `hiddenSessions` / `revealHiddenAll` 两个字段
+- `src/client/settings-card.tsx`：`PluginConfig` 同步这两个字段；正文加**自救块**
   （已隐藏 N 条 + 立即生效的「全部取消隐藏」），刻意**不进 `FIELDS`** —— 它不该参与
   「自定义 / 未保存 / 保存」那套草稿机制
 - `src/client/index.tsx`：`injectStyle` / `removeStyle` / `LOG` 迁到 `hidden/dom.ts`
@@ -73,8 +72,28 @@
    折叠成图标栏时上游不渲染 `_searchSlot`，降级为挂在「+」旁边。
 
 **已知代价**（都写进 README 了）：依赖上游类名后缀与 fiber 结构，上游改版即静默失效；
-分组标题的会话计数按未过滤数据算，会偏大；未分组桶没有按工作区的眼睛；
-隐藏列表不做清理（归档或消失的会话 id 仍留着）。
+分组标题的会话计数按未过滤数据算，会偏大；隐藏列表不做清理（归档或消失的会话 id 仍留着）。
+
+**实机反馈后的第一轮修正（同一版本内，尚未发 npm）**，三条都在用户那边一眼看出来的：
+
+1. **图标是个空底板**（点一下才长出眼睛，再点变划线眼）—— 这是个真 bug：
+   `createEye()` 里预设了 `dataset.stpOn = '0'`，而 `setEyeState()` 正是拿这个值与目标
+   比对**来决定要不要重画图标**，于是第一次调用认为「已经是关态、图标早画好了」而整个
+   跳过 —— 按钮就一直空着。改法：不预设该属性，让第一次 `setEyeState` 必定落笔。
+   教训与项目里其他几次一样：**「值一样就不写 DOM」这种优化，遇到「初始态其实没写」时
+   就会把首次渲染吞掉**。
+2. **去掉「按工作区分别覆盖」那一层**（用户原话：不好用，做一个统一的开关就可以了）。
+   连带把 `revealHiddenWorkspaces` 配置项、`revealOf()`、`toggleWorkspace()`、
+   文件夹行的眼睛、以及整条**工作区归属索引**（`buildWorkspaceIndex` + `ctx.workspaces`
+   注入 + `@deepseek-ai/dsh-api-workspace-controller` 依赖）一起删掉 ——
+   `SessionSummary` 里没有 workspaceId，那个索引存在的唯一理由就是按工作区覆盖。
+   现在只剩 `hiddenSessions` + `revealHiddenAll` 两个字段。
+3. **补上悬停说明**。原生 `title` 要等约一秒才出来，等于没有；而跟着按钮放的 CSS 气泡
+   会被侧边栏的 `overflow:hidden`（`regionArea` / `sectionHeader`）裁掉。做法是自己画一个
+   `position:fixed` 的气泡挂在 `document.body` 上，用全局委托的 `pointerover` / `pointerout`
+   驱动（按钮是动态注入、被挤掉后还会重造的，逐个绑定迟早漏一个），token 照抄官方
+   `Tooltip.module.css`。文案也改成一眼能懂的「隐藏这条会话（不显示在侧边栏）」/
+   「显示被隐藏的会话（一次性全显示）」。
 
 **发布通道收敛为「只有 npm」**（用户决定，与 v0.6.6 的「npm 正式 / github 测试」不同）：
 
@@ -1450,16 +1469,17 @@ cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改�
    与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
    再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
 3. **实机验证 v0.7.0 的隐藏会话全链路**（同样只能实机跑）—— 顺序：
-   ① hover 会话行看眼睛是否出现 → ② 点它，行是否消失 → ③「工作区」行放大镜左边是否有
-   总开关，点一下是否全部显示（半透明）→ ④ 某个工作区的文件夹行是否出现眼睛、
-   它能否压过总开关 → ⑤ 隐藏当前正在打开的会话，确认它先不消失、切走后消失 →
+   ① hover 会话行看眼睛是否出现（**且图标一开始就要是完整的眼睛 / 划线眼，不能是空底板**）
+   → ② 鼠标停在眼睛上看提示气泡是否立刻出现 → ③ 点它，行是否消失 →
+   ④「工作区」行放大镜左边是否有总开关，点一下是否全部显示（半透明）→
+   ⑤ 隐藏当前正在打开的会话，确认它先不消失、切走后消失 →
    ⑥ 搜索一个被隐藏的会话，确认结果行被藏 / 淡化 → ⑦ 刷新页面与重启 dsh，确认状态保持 →
    ⑧ 设置卡片里「已隐藏 N 条」与实际一致，「全部取消隐藏」有效。
    任何一步不生效就看控制台有没有本插件前缀的告警（`_sessionRow` / `__reactFiber$` 的排查
    写在 README「没生效时怎么排查」）
 4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
    `parseTitleOutput` / `buildPromptInput` / `composeTitle`；v0.7.0 的
-   `rowMode()` / `revealOf()` 也是纯函数，一并覆盖
+   `rowMode()` 也是纯函数，一并覆盖
 5. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→

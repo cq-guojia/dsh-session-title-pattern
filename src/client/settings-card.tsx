@@ -31,10 +31,8 @@ export interface PluginConfig {
   maxBytes?: number;
   /** 被用户隐藏的会话 id（本插件私有的显示层开关，与平台「归档」无关）。 */
   hiddenSessions?: string[];
-  /** 「工作区」区域标题行那只眼睛的总开关：是否显示被隐藏的会话。 */
+  /** 「工作区」区域标题行那只眼睛的总开关：是否把被隐藏的会话显示出来。 */
   revealHiddenAll?: boolean;
-  /** 按工作区的显式覆盖；键不存在 = 跟随 `revealHiddenAll`。 */
-  revealHiddenWorkspaces?: Record<string, boolean>;
 }
 
 /**
@@ -53,7 +51,6 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   maxBytes: 80,
   hiddenSessions: [],
   revealHiddenAll: false,
-  revealHiddenWorkspaces: {},
 };
 
 /** `llm` 远端命名空间里我们用到的方法（结构化声明，不引它的类型入口）。 */
@@ -810,7 +807,7 @@ export function SettingsCard({
           <span className="stp-label">隐藏的会话</span>
         </div>
         <p className="stp-hint">
-          {`已隐藏 ${hiddenCount} 条。悬停侧边栏的会话行可隐藏 / 取消隐藏，「工作区」那行右侧的眼睛是一键全显 / 全隐；` +
+          {`已隐藏 ${hiddenCount} 条。悬停侧边栏的会话行可隐藏 / 取消隐藏，「工作区」那行放大镜左边的眼睛是一键全显 / 全隐；` +
             '隐藏只影响侧边栏显不显示，会话本身、搜索与标题都照常。'}
         </p>
         <div className="stp-rescueActions">
@@ -822,7 +819,6 @@ export function SettingsCard({
               setFailed(false);
               // 直接写、不经过「保存」：它是兜底出口，越少前置条件越好。
               void scope.unset('hiddenSessions').catch(() => setFailed(true));
-              void scope.unset('revealHiddenWorkspaces').catch(() => setFailed(true));
             }}
           >
             全部取消隐藏

@@ -13,11 +13,11 @@
  * ## 承重假设（上游改版即静默失效，必须配 fail-safe）
  *
  * - 行元素只靠 CSS Module 的**类名后缀**识别（`_sessionRow` / `_searchResultRow` /
- *   `_projectRow` / `_sectionHeader` / `_searchSlot` / `_rowActions` / `_search`）。
+ *   `_sectionHeader` / `_searchSlot` / `_rowActions`）。
  *   哈希前缀每个模块都不同（`YDXeBa_` / `bhn1Oq_` / …）且随构建变化，所以只按后缀匹配。
  * - 行元素上**没有任何会话 id 属性**（只有 class / role / aria-selected），会话 id
  *   只能沿 React fiber 上溯取 `memoizedProps`：会话行是 `node.id`、搜索结果行是
- *   `result.id`、工作区分组行是 `group.workspaceId`（未分组桶为 `undefined`）。
+ *   `result.id`。
  *
  * 这两条任一失配，`sessionIdOfRow()` 就会返回 undefined —— 调用方据此走 fail-safe：
  * 本趟**什么都不改**，绝不乱动用户的列表。
@@ -27,11 +27,11 @@ import { EYE_OFF, EYE_OPEN } from './icons';
 /** 我们注入的节点上的标记属性；值是本节点属于哪一处入口。 */
 export const EYE_ATTR = 'data-stp-eye';
 
-/** 三处入口。 */
-export type EyeKind = 'session' | 'workspace' | 'header';
+/** 两处入口：会话行里的眼睛，「工作区」区域标题行上的总开关。 */
+export type EyeKind = 'session' | 'header';
 
-/** 未分组桶的 group key（与 ui-workspace 的 `UNGROUPED_KEY` 同义）。 */
-const UNGROUPED_KEY = '';
+/** 提示文案挂在这个属性上，由 `installEyeTips()` 的委托监听读出来。 */
+const TIP_ATTR = 'data-stp-tip';
 
 /** 沿 fiber 上溯的最大层数。实测会话行需要 3 层（div → HoverCard span → HoverCard → SessionNodeItem）。 */
 const MAX_FIBER_DEPTH = 40;
@@ -84,22 +84,6 @@ export function sessionIdOfRow(element: Element): string | undefined {
   return undefined;
 }
 
-/**
- * 沿 fiber 上溯，取下工作区分组行的工作区 key。
- *
- * 未分组桶统一成空串（`GroupNode.workspaceId === undefined`）；不是分组行返回 undefined。
- * 注意会话行的祖先链上也可能路过分组行，所以这个方法**只对 `_projectRow` 调用**。
- */
-export function workspaceKeyOfRow(element: Element): string | undefined {
-  let fiber = fiberOf(element);
-  for (let depth = 0; fiber !== undefined && depth < MAX_FIBER_DEPTH; depth += 1) {
-    const group = readRecord(readRecord(fiber.memoizedProps)?.group);
-    if (group !== undefined) return readString(group.workspaceId) ?? UNGROUPED_KEY;
-    fiber = fiber.return ?? undefined;
-  }
-  return undefined;
-}
-
 /** 按类名后缀找节点（哈希前缀随构建变化，只能匹配后缀）。 */
 export function bySuffix(suffix: string): string {
   return `[class*="_${suffix}"]`;
@@ -127,7 +111,10 @@ export function createEye(kind: EyeKind, onClick: (button: HTMLButtonElement) =>
   const button = document.createElement('button');
   button.type = 'button';
   button.setAttribute(EYE_ATTR, kind);
-  button.dataset.stpOn = '0';
+  // **不要**在这里预设 `data-stp-on`：`setEyeState` 拿它跟目标值比对来决定要不要重画
+  // 图标，预置成 '0' 会让第一次调用认为「已经是关态、图标早画好了」而整个跳过，
+  // 于是按钮一直是个空底板，点一下才长出第一个图标（实机上就是这么暴露的）。
+  // 留空则第一次 setEyeState 必定落笔。
 
   const swallow = (event: Event): void => {
     event.stopPropagation();
@@ -160,15 +147,104 @@ export function ensureEye(
   return button;
 }
 
-/** 更新按钮的图标与提示文案。值与当前一致时不写 DOM，避免无谓的属性变更。 */
+/**
+ * 更新按钮的图标与提示文案。值与当前一致时不写 DOM，避免无谓的属性变更。
+ *
+ * 提示**不用**原生 `title`：一是慢（浏览器默认要悬停约 1 秒），二是我们要的是一个
+ * 立刻能看懂的说明（见 `installEyeTips()`）。`aria-label` 照旧给读屏用。
+ */
 export function setEyeState(button: HTMLButtonElement, on: boolean, label: string): void {
   const next = on ? '1' : '0';
   if (button.dataset.stpOn !== next) {
     button.dataset.stpOn = next;
     button.innerHTML = on ? EYE_OPEN : EYE_OFF;
   }
-  if (button.title !== label) button.title = label;
+  if (button.getAttribute(TIP_ATTR) !== label) button.setAttribute(TIP_ATTR, label);
   if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
+}
+
+/**
+ * 提示气泡。
+ *
+ * 必须挂在 `document.body` 上：侧边栏里 `regionArea` / `sectionHeader` 都是
+ * `overflow:hidden`，跟着按钮走的 `::after` 一律会被裁掉。气泡用 `position:fixed`
+ * 自己算坐标，观感（底色、字号、圆角）照抄官方 `Tooltip.module.css` 的 token。
+ */
+let tipBubble: HTMLDivElement | undefined;
+
+function tipElement(): HTMLDivElement {
+  if (tipBubble !== undefined && tipBubble.isConnected) return tipBubble;
+  const bubble = document.createElement('div');
+  bubble.setAttribute('data-stp-tip-bubble', '');
+  bubble.style.display = 'none';
+  document.body.append(bubble);
+  tipBubble = bubble;
+  return bubble;
+}
+
+/** 贴着按钮上沿居中显示；上面放不下（贴到视口顶）就翻到下面。 */
+function showTip(button: HTMLElement): void {
+  const text = button.getAttribute(TIP_ATTR);
+  if (text === null || text.length === 0) return;
+  const bubble = tipElement();
+  bubble.textContent = text;
+  // 先显示再量尺寸：`display:none` 时量出来是 0。
+  bubble.style.display = 'block';
+  const anchor = button.getBoundingClientRect();
+  const size = bubble.getBoundingClientRect();
+  const above = anchor.top - size.height - 6;
+  const top = above >= 4 ? above : anchor.bottom + 6;
+  const left = Math.min(
+    Math.max(anchor.left + anchor.width / 2 - size.width / 2, 4),
+    Math.max(window.innerWidth - size.width - 4, 4),
+  );
+  bubble.style.top = `${Math.round(top)}px`;
+  bubble.style.left = `${Math.round(left)}px`;
+}
+
+function hideTip(): void {
+  if (tipBubble !== undefined) tipBubble.style.display = 'none';
+}
+
+/**
+ * 全局委托装一次提示气泡，返回卸载函数。
+ *
+ * 用委托而不是给每个按钮绑事件：按钮是动态注入、被 React 挤掉后又重新造的，
+ * 逐个绑定迟早漏一个。
+ */
+export function installEyeTips(): () => void {
+  const over = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest(`[${TIP_ATTR}]`);
+    if (button === null) return;
+    showTip(button as HTMLElement);
+  };
+  const out = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest(`[${TIP_ATTR}]`);
+    if (button === null) return;
+    // 指针只是从按钮移到它里面的 SVG（或反过来）—— 还在同一个按钮里，别闪。
+    const next = (event as PointerEvent).relatedTarget;
+    if (next instanceof Node && button.contains(next)) return;
+    hideTip();
+  };
+  // 位置会变（列表滚动、行被重排）或马上要点击时，直接收掉，不追着走。
+  const dismiss = (): void => hideTip();
+
+  document.addEventListener('pointerover', over, true);
+  document.addEventListener('pointerout', out, true);
+  window.addEventListener('scroll', dismiss, true);
+  document.addEventListener('pointerdown', dismiss, true);
+  return () => {
+    document.removeEventListener('pointerover', over, true);
+    document.removeEventListener('pointerout', out, true);
+    window.removeEventListener('scroll', dismiss, true);
+    document.removeEventListener('pointerdown', dismiss, true);
+    tipBubble?.remove();
+    tipBubble = undefined;
+  };
 }
 
 /** 注入样式元素的 id，带 id 是为了判重：重复激活不会叠加规则。 */
@@ -183,6 +259,9 @@ export const HIDDEN_CSS = `
 /* 已「露出」的眼睛用主文字色，和未激活的灰区分开。 */
 [data-stp-eye][data-stp-on="1"]{color:var(--dsw-alias-label-primary)}
 [data-stp-eye="header"]{margin-right:2px}
+/* 提示气泡。挂在 body 上、position:fixed，所以不会被侧边栏的 overflow:hidden 裁掉；
+   底色/字号/圆角照官方 Tooltip.module.css 的 token 抄，观感与内置提示一致。 */
+[data-stp-tip-bubble]{position:fixed;z-index:100;pointer-events:none;width:max-content;max-width:50vw;padding:3px 7px;border-radius:8px;background:var(--dsw-alias-tooltip-bg);color:var(--dsw-static-neutral-bluish-00);font-size:13px;line-height:20px;white-space:nowrap}
 `;
 
 /** 按 id 幂等地往页面注入一段样式（沿用原有 crumb-width 覆盖的做法）。 */

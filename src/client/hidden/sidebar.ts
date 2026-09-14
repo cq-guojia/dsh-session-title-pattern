@@ -10,14 +10,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
-// 下面两个只为拿到 `ctx.sessions` / `ctx.workspaces` 的类型增强（tsconfig 的 types 是空的，
-// 模块增强必须靠显式 import 才会被加载）。全部 type-only，不进产物。
+// 只为拿到 `ctx.sessions` 的类型增强（tsconfig 的 types 是空的，模块增强必须靠显式
+// import 才会被加载）。type-only，不进产物。
 import type {} from '@deepseek-ai/dsh-api-session-controller/client';
-import type {} from '@deepseek-ai/dsh-api-workspace-controller/client';
 
 import { LOG } from '../log';
 import type { PluginConfig } from '../settings-card';
-import { createHiddenConfigStore, revealOf, UNGROUPED_KEY } from './config';
+import { createHiddenConfigStore } from './config';
 import type { HiddenConfig, HiddenConfigStore } from './config';
 import {
   EYE_ATTR,
@@ -31,15 +30,14 @@ import {
   findAll,
   findSidebarRegion,
   injectStyle,
+  installEyeTips,
   removeStyle,
   sessionIdOfRow,
   setEyeState,
   watchSidebarRegion,
-  workspaceKeyOfRow,
 } from './dom';
 
 type Sessions = Context['sessions'];
-type Workspaces = Context['workspaces'];
 
 /** 被显示出来的隐藏会话用多淡区分（唯一的视觉标记，用户明确要求不要加图标）。 */
 const DIM_OPACITY = '0.55';
@@ -76,21 +74,6 @@ function setRowVisibility(row: HTMLElement, mode: RowMode): void {
   if (row.style.opacity !== opacity) row.style.opacity = opacity;
 }
 
-/**
- * 会话 id → 工作区 key 的索引（未分组 / 未知一律按未分组处理）。
- *
- * `SessionSummary` 里没有 workspaceId，只能从工作区侧反查它的成员表 ——
- * 这与 ui-workspace 里那个不对外导出的 `owningGroupKey()` 是同一套语义。
- */
-function buildWorkspaceIndex(workspaces: Workspaces | undefined): Map<string, string> {
-  const index = new Map<string, string>();
-  if (workspaces === undefined) return index;
-  for (const item of workspaces.list.getSnapshot().items) {
-    for (const sessionId of item.sessionIds) index.set(sessionId, item.workspaceId);
-  }
-  return index;
-}
-
 /** 行识别失效的告警只打一次，避免每帧刷屏。 */
 function createWarner(): (message: string) => void {
   let warned = false;
@@ -111,32 +94,16 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
   const store: HiddenConfigStore = createHiddenConfigStore(scope);
   const warnOnce = createWarner();
 
-  /** 可选的会话 / 工作区服务：拿不到只是功能降级，不会阻断启动。 */
-  const services: { sessions?: Sessions; workspaces?: Workspaces } = {};
-  let workspaceIndex = new Map<string, string>();
-  let workspaceIndexStale = true;
+  /** 可选会话服务：拿不到只是「当前会话先不藏」这条例外失效，不会阻断启动。 */
+  const services: { sessions?: Sessions } = {};
 
   const scheduler = createFrameScheduler(() => decorate());
   const dirty = (): void => scheduler.schedule();
-
-  const workspaceKeyOf = (sessionId: string): string => {
-    if (workspaceIndexStale) {
-      workspaceIndexStale = false;
-      workspaceIndex = buildWorkspaceIndex(services.workspaces);
-    }
-    return workspaceIndex.get(sessionId) ?? UNGROUPED_KEY;
-  };
 
   const onSessionEye = (button: HTMLButtonElement): void => {
     const id = button.dataset.stpId;
     if (id === undefined || id.length === 0) return;
     store.toggleSession(id);
-  };
-
-  const onWorkspaceEye = (button: HTMLButtonElement): void => {
-    const key = button.dataset.stpWs;
-    if (key === undefined) return;
-    store.toggleWorkspace(key);
   };
 
   const onHeaderEye = (): void => {
@@ -160,7 +127,7 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     stats.resolved += 1;
 
     const isHidden = hidden.has(id);
-    const revealed = isHidden && revealOf(workspaceKeyOf(id), config);
+    const revealed = isHidden && config.revealHiddenAll;
     setRowVisibility(row, rowMode(isHidden, revealed, id === current));
 
     // 眼睛挂在行内操作区里：那个容器本来就是 hover 才 `inline-flex`，
@@ -170,38 +137,7 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     if (actions === null) return;
     const eye = ensureEye(actions, 'session', onSessionEye);
     eye.dataset.stpId = id;
-    setEyeState(eye, isHidden, isHidden ? '取消隐藏此会话' : '隐藏此会话');
-  };
-
-  /**
-   * 处理一个工作区分组行：给「这个工作区要不要显示隐藏的会话」的覆盖开关。
-   *
-   * 只在该工作区**确实有隐藏会话**时才注入 —— 一个点了什么都不会变的按钮只会让人
-   * 困惑。未分组桶（key 为空串）不注入：它的隐藏项归区域标题行的总开关管。
-   */
-  const applyProjectRow = (
-    row: HTMLElement,
-    config: HiddenConfig,
-    hiddenWorkspaces: ReadonlySet<string>,
-  ): void => {
-    const actions = row.querySelector<HTMLElement>(bySuffix('rowActions'));
-    if (actions === null) return;
-
-    const existing = eyeIn(actions, 'workspace');
-    const key = workspaceKeyOfRow(row);
-    if (key === undefined || key === UNGROUPED_KEY || !hiddenWorkspaces.has(key)) {
-      // 之前注入过、现在不该有（例如这个工作区的隐藏会话已被全部取消隐藏）→ 收掉。
-      existing?.remove();
-      return;
-    }
-    const eye = existing ?? ensureEye(actions, 'workspace', onWorkspaceEye);
-    eye.dataset.stpWs = key;
-    const revealing = revealOf(key, config);
-    setEyeState(
-      eye,
-      revealing,
-      revealing ? '不再显示此工作区隐藏的会话' : '显示此工作区隐藏的会话',
-    );
+    setEyeState(eye, isHidden, isHidden ? '取消隐藏（不再计入隐藏列表）' : '隐藏这条会话（不显示在侧边栏）');
   };
 
   /**
@@ -233,7 +169,11 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     }
 
     const revealing = config.revealHiddenAll;
-    setEyeState(eye, revealing, revealing ? '不再显示被隐藏的会话' : '显示被隐藏的会话');
+    setEyeState(
+      eye,
+      revealing,
+      revealing ? '收起被隐藏的会话' : '显示被隐藏的会话（一次性全显示）',
+    );
   };
 
   function decorate(): void {
@@ -259,49 +199,34 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
       return;
     }
 
-    const hiddenWorkspaces = new Set<string>();
-    for (const id of hidden) hiddenWorkspaces.add(workspaceKeyOf(id));
-    for (const row of findAll(root, 'projectRow')) applyProjectRow(row, config, hiddenWorkspaces);
-
     ensureHeaderEye(root, config);
   }
 
   ctx.effect(() => {
     injectStyle(HIDDEN_STYLE_ID, HIDDEN_CSS);
+    const stopTips = installEyeTips();
     dirty();
 
     const stopWatch = watchSidebarRegion(dirty);
     const stopConfig = store.subscribe(dirty);
 
-    // 会话 / 工作区服务用 ctx.inject 延迟等待：它们在组合里不存在时只是功能降级
-    // （工作区覆盖与「当前会话例外」失效），绝不能写进 inject 声明 —— 那会让本
-    // entry 永远 pending，而 pending 的 entry 会让整个 dsh 启动失败。
+    // 会话服务用 ctx.inject 延迟等待：它在组合里不存在时只是「当前会话先不藏」这条例外
+    // 失效，绝不能写进 inject 声明 —— 那会让本 entry 永远 pending，而 pending 的 entry
+    // 会让整个 dsh 启动失败。
     let stopSessions: (() => void) | undefined;
     ctx.inject(['sessions'], (sub) => {
       services.sessions = sub.sessions;
       stopSessions = sub.sessions.list.subscribe(dirty);
-      // 服务是晚一步到位的：到位后立刻补跑一趟（否则「当前会话例外」要等到下一次
-      // 列表变化才生效）。
-      dirty();
-    });
-    let stopWorkspaces: (() => void) | undefined;
-    ctx.inject(['workspaces'], (sub) => {
-      services.workspaces = sub.workspaces;
-      stopWorkspaces = sub.workspaces.list.subscribe(() => {
-        // 成员表变了，工作区归属索引要重建。
-        workspaceIndexStale = true;
-        dirty();
-      });
-      // 同理：之前那趟 decorate 可能是在服务还没到位时跑的，归属索引是空的。
-      workspaceIndexStale = true;
+      // 服务是晚一步到位的：到位后立刻补跑一趟，否则「当前会话例外」要等到下一次
+      // 列表变化才生效。
       dirty();
     });
 
     return () => {
-      stopWorkspaces?.();
       stopSessions?.();
       stopConfig();
       stopWatch();
+      stopTips();
       scheduler.cancel();
       teardown();
       removeStyle(HIDDEN_STYLE_ID);

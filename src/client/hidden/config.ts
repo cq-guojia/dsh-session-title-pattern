@@ -14,45 +14,20 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 import { LOG } from '../log';
 import type { PluginConfig } from '../settings-card';
 
-/**
- * 未分组桶的 group key。
- *
- * 与 ui-workspace 的 `UNGROUPED_KEY` 同义（那边没有导出成服务，跨包值导入也会被
- * 客户端 bundle-purity 闸门拒绝，所以这里自己写一份字面量）。
- */
-export const UNGROUPED_KEY = '';
-
-/** 隐藏相关的三个字段，全部落在本插件的设置命名空间里。 */
+/** 隐藏相关的两个字段，全部落在本插件的设置命名空间里。 */
 export interface HiddenConfig {
   /** 被隐藏的会话 id。 */
   readonly hiddenSessions: readonly string[];
-  /** 「工作区」区域标题行那只眼睛：显示 / 不显示被隐藏的会话。 */
+  /** 「工作区」区域标题行那只眼睛：是否把被隐藏的会话显示出来。 */
   readonly revealHiddenAll: boolean;
-  /** 按工作区的显式覆盖；**键不存在 = 跟随 `revealHiddenAll`**。 */
-  readonly revealHiddenWorkspaces: Readonly<Record<string, boolean>>;
 }
 
-const EMPTY: HiddenConfig = { hiddenSessions: [], revealHiddenAll: false, revealHiddenWorkspaces: {} };
+const EMPTY: HiddenConfig = { hiddenSessions: [], revealHiddenAll: false };
 
 /** 写回设置文档前的去抖窗口：连点眼睛只落一次写。 */
 const WRITE_DEBOUNCE_MS = 300;
 
-type HiddenField = 'hiddenSessions' | 'revealHiddenAll' | 'revealHiddenWorkspaces';
-
-/**
- * 这个工作区当前该不该显示被隐藏的会话。
- *
- * 显式覆盖优先，否则跟随总开关 —— 这就是「文件夹行那只眼睛覆盖总开关」的全部规则。
- */
-export function revealOf(workspaceKey: string, config: HiddenConfig): boolean {
-  const override = config.revealHiddenWorkspaces[workspaceKey];
-  return override === undefined ? config.revealHiddenAll : override;
-}
-
-/** 这条会话是否在隐藏列表里（与显示开关无关）。 */
-export function isHidden(sessionId: string, config: HiddenConfig): boolean {
-  return config.hiddenSessions.includes(sessionId);
-}
+type HiddenField = 'hiddenSessions' | 'revealHiddenAll';
 
 export interface HiddenConfigStore {
   /** 当前值（本地乐观值优先）。DOM 层每趟 decorate 读一次。 */
@@ -61,26 +36,15 @@ export interface HiddenConfigStore {
   subscribe(listener: () => void): () => void;
   /** 隐藏 / 取消隐藏一条会话。 */
   toggleSession(sessionId: string): void;
-  /** 总开关：一键全显 / 全隐，并清空各工作区的覆盖。 */
+  /** 总开关：一键全显 / 全隐。 */
   toggleAll(): void;
-  /** 单个工作区的覆盖开关。 */
-  toggleWorkspace(workspaceKey: string): void;
-  /** 清空隐藏列表与覆盖（设置卡片里的自救出口）。 */
+  /** 清空隐藏列表（设置卡片里的自救出口）。 */
   clearAll(): void;
   dispose(): void;
 }
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
-}
-
-function readBooleanRecord(value: unknown): Record<string, boolean> {
-  if (value === null || typeof value !== 'object') return {};
-  const result: Record<string, boolean> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry === true || entry === false) result[key] = entry;
-  }
-  return result;
 }
 
 /**
@@ -94,16 +58,12 @@ function parse(config: PluginConfig | undefined): HiddenConfig {
   return {
     hiddenSessions: readStringArray(config.hiddenSessions),
     revealHiddenAll: config.revealHiddenAll === true,
-    revealHiddenWorkspaces: readBooleanRecord(config.revealHiddenWorkspaces),
   };
 }
 
-/** 空集合就没必要在用户层记一笔，直接清掉让它回落默认值。 */
+/** 空列表就没必要在用户层记一笔，直接清掉让它回落默认值。 */
 function shouldUnset(field: HiddenField, value: unknown): boolean {
   if (field === 'hiddenSessions') return Array.isArray(value) && value.length === 0;
-  if (field === 'revealHiddenWorkspaces') {
-    return value !== null && typeof value === 'object' && Object.keys(value as object).length === 0;
-  }
   // 布尔值一律显式写：万一组合层把默认值配成了 true，unset 会让用户的「关」失效。
   return false;
 }
@@ -144,21 +104,11 @@ class Store implements HiddenConfigStore {
   }
 
   toggleAll(): void {
-    // 一键全显 / 全隐：取反总开关，**并清空各工作区的覆盖** —— 否则某些工作区
-    // 还钉在旧值上，这个按钮看起来就像只对一部分工作区生效。
-    this.write({ revealHiddenAll: !this.local.revealHiddenAll, revealHiddenWorkspaces: {} });
-  }
-
-  toggleWorkspace(workspaceKey: string): void {
-    const next = { ...this.local.revealHiddenWorkspaces };
-    // 取反的是**当前有效值**：总开关开着时，第一下就该把它关掉，而不是先写入一个
-    // 与当前显示状态一致的值（那会表现为「点了没反应」）。
-    next[workspaceKey] = !revealOf(workspaceKey, this.local);
-    this.write({ revealHiddenWorkspaces: next });
+    this.write({ revealHiddenAll: !this.local.revealHiddenAll });
   }
 
   clearAll(): void {
-    this.write({ hiddenSessions: [], revealHiddenWorkspaces: {} });
+    this.write({ hiddenSessions: [] });
   }
 
   dispose(): void {
@@ -181,9 +131,6 @@ class Store implements HiddenConfigStore {
         revealHiddenAll: this.dirty.has('revealHiddenAll')
           ? this.local.revealHiddenAll
           : incoming.revealHiddenAll,
-        revealHiddenWorkspaces: this.dirty.has('revealHiddenWorkspaces')
-          ? this.local.revealHiddenWorkspaces
-          : incoming.revealHiddenWorkspaces,
       };
     }
     this.emit();

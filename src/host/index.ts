@@ -124,17 +124,11 @@ export interface Config {
    */
   hiddenSessions: string[];
   /**
-   * 「工作区」区域标题行那只眼睛的总开关：是否显示被隐藏的会话。
+   * 「工作区」区域标题行那只眼睛的总开关：是否把被隐藏的会话显示出来。
    *
-   * 单个工作区的显式覆盖（`revealHiddenWorkspaces`）优先于它。
+   * 只有这一个开关 —— 曾经做过「按工作区分别覆盖」，实机用起来嫌碎，已去掉。
    */
   revealHiddenAll: boolean;
-  /**
-   * 按工作区的显式覆盖：key 是 workspaceId，值 true 表示这个工作区显示隐藏会话。
-   *
-   * **键不存在 = 跟随 `revealHiddenAll`**；未分组桶用空串 `''` 作 key。
-   */
-  revealHiddenWorkspaces: Record<string, boolean>;
 }
 
 /**
@@ -175,8 +169,6 @@ export const Config: z<Config> = z.object({
   // 隐藏会话：插件私有的显示层开关，与平台「归档」无关（归档是 host 权威且单向的）。
   hiddenSessions: z.array(z.string()).default([]),
   revealHiddenAll: z.boolean().default(false),
-  // 动态 key 的字典：schemastery 的 dict 就是干这个的（键 = workspaceId）。
-  revealHiddenWorkspaces: z.dict(z.boolean()).default({}),
 });
 
 /**
