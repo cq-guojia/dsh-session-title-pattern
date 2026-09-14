@@ -152,17 +152,6 @@ const modeField: FieldSpec = {
   parse: (text) => ({ kind: 'set', value: text === 'rules' ? 'rules' : 'llm' }),
 };
 
-/**
- * 布尔字段。
- *
- * 和 `modeField` 一样用字符串草稿承载真值（`'true'` / `'false'`）：卡片那套
- * 「暂存 → 比对 → 保存」全按文本走，多一套类型只会多一处要同步的地方。
- */
-const boolField: FieldSpec = {
-  format: (value) => (value === false ? 'false' : 'true'),
-  parse: (text) => ({ kind: 'set', value: text !== 'false' }),
-};
-
 interface FieldDesc {
   field: keyof PluginConfig & string;
   label: string;
@@ -220,22 +209,19 @@ const FIELDS: readonly FieldDesc[] = [
     hint: '单位字节，必须 ≤ session-title 的 maxTitleBytes（dsh-base 默认 80）',
     spec: numberField,
   },
-  // 隐藏会话的总开关。放在最后、紧挨着下面的「隐藏的会话」自救块 —— 一个功能的
-  // 开关、状态与重置放在一起读起来才顺。
-  {
-    field: 'hiddenEnabled',
-    label: '启用隐藏会话',
-    hint:
-      '打开后：侧边栏每条会话行悬停时，「…」左边会出现一只眼睛，点它就把这条会话隐藏起来' +
-      '（默认不再显示，随时可以再显示回来）；「工作区」那一行放大镜左边的眼睛是一键' +
-      '显示 / 收起所有被隐藏的会话。隐藏只影响侧边栏显不显示 —— 会话本身、搜索与标题' +
-      '自动生成都不受影响，也不会删掉任何东西。' +
-      '关掉这里，左侧这一整套按钮与隐藏效果全部停止执行；' +
-      '你设过的隐藏列表会原样保留，以后再打开还是那些会话被隐藏着。',
-    spec: boolField,
-    toggle: { on: 'true', off: 'false' },
-  },
 ];
+
+/**
+ * 「启用隐藏会话」的说明。
+ *
+ * 这个开关**不在 `FIELDS` 里**：它一点即生效（见 `renderHiddenToggle()`），
+ * 而 `FIELDS` 那一套是「暂存 → 保存」的字段。
+ */
+const HIDDEN_ENABLED_HINT =
+  '启用后，会话行悬停时行尾显示隐藏按钮，可将该会话从侧边栏隐藏；「工作区」标题行放大镜' +
+  '左侧的按钮用于整体显示或收起全部已隐藏的会话。隐藏仅影响侧边栏的呈现，不影响会话内容、' +
+  '搜索与标题生成，也不会删除任何数据。关闭后，上述按钮与隐藏效果均停止执行；已设置的' +
+  '隐藏列表将保留，重新启用时继续生效。';
 
 const ChevronIcon = (
   <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -478,6 +464,14 @@ export function SettingsCard({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [directory, setDirectory] = useState<DirectoryState>({ status: 'loading' });
+  /**
+   * 「启用隐藏会话」的本地乐观值。
+   *
+   * 那个开关一点即写，而写 host 要走一轮往返 —— 直接绑快照的话，开关会先弹回原状、
+   * 等快照回来再翻过去。所以先按用户点的显示，等快照确认成同一个值再把它清掉
+   * （清掉是为了不把别处改进来的值一直盖住）。
+   */
+  const [hiddenEnabledDraft, setHiddenEnabledDraft] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     const llm = getLlm();
@@ -495,6 +489,14 @@ export function SettingsCard({
   }, [describe, getCredentials, getLlm]);
 
   const section = (snapshot.value ?? {}) as PluginConfig;
+  const hiddenEnabledValue = section.hiddenEnabled !== false;
+
+  // 快照追上了用户点的那一下 → 撤掉本地乐观值，让设置文档重新成为唯一真源。
+  useEffect(() => {
+    if (hiddenEnabledDraft === undefined) return;
+    if (hiddenEnabledValue === hiddenEnabledDraft) setHiddenEnabledDraft(undefined);
+  }, [hiddenEnabledDraft, hiddenEnabledValue]);
+
   const user = (snapshot.user ?? {}) as Record<string, unknown>;
   const base = (snapshot.base ?? {}) as Record<string, unknown>;
   const writable = snapshot.writable && !busy;
@@ -775,30 +777,79 @@ export function SettingsCard({
     );
   };
 
-  /** 开关字段：标题与说明在左，开关在右（对齐官方 MCP / Subagent 卡片的开关行）。 */
+  /**
+   * 开关行的骨架：标题与说明在左，开关在右（对齐官方 MCP / Subagent 卡片的开关行）。
+   *
+   * 单独抽出来是因为卡片里有两种开关：`FIELDS` 里的字段（走暂存 + 保存），
+   * 以及立即生效的那一个（隐藏会话总开关，不在 `FIELDS` 里）—— 外观必须一致。
+   */
+  const renderToggleRow = (options: {
+    title: string;
+    hint?: string | undefined;
+    checked: boolean;
+    overridden?: boolean;
+    onChange: (next: boolean) => void;
+  }): React.JSX.Element => (
+    <div className="stp-toggleRow">
+      <div className="stp-toggleLabel">
+        <span className="stp-toggleTitle">{options.title}</span>
+        {options.hint === undefined ? null : <p className="stp-hint">{options.hint}</p>}
+      </div>
+      {options.overridden === true ? <span className="stp-overridden">自定义</span> : null}
+      <Switch
+        checked={options.checked}
+        disabled={!writable}
+        label={options.title}
+        onChange={options.onChange}
+      />
+    </div>
+  );
+
+  /** `FIELDS` 里的开关字段。 */
   const renderToggle = (desc: FieldDesc, notice?: string): React.JSX.Element => {
     // 开关的真值是布尔，而卡片全程按文本走 —— 两个端点由 `desc.toggle` 给出。
     const { on, off } = desc.toggle ?? { on: 'llm', off: 'rules' };
     return (
       <div key={desc.field} className="stp-field">
-        <div className="stp-toggleRow">
-          <div className="stp-toggleLabel">
-            <span className="stp-toggleTitle">{desc.label}</span>
-            {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
-          </div>
-          {isOverridden(desc) ? <span className="stp-overridden">自定义</span> : null}
-          <Switch
-            checked={draftText(desc) === on}
-            disabled={!writable}
-            label={desc.label}
-            onChange={(next) => stage(desc.field, next ? on : off)}
-          />
-        </div>
+        {renderToggleRow({
+          title: desc.label,
+          hint: desc.hint,
+          checked: draftText(desc) === on,
+          overridden: isOverridden(desc),
+          onChange: (next) => stage(desc.field, next ? on : off),
+        })}
         {/* 关掉模型总结后，把「接下来会怎样」直接写在开关下面。 */}
         {notice === undefined ? null : <p className="stp-hint">{notice}</p>}
       </div>
     );
   };
+
+  /**
+   * 隐藏会话总开关：**一点即生效**，不进 `FIELDS` 的暂存 / 保存流程。
+   *
+   * 它是个"要不要用这个功能"的总闸，改了就应该立刻看到界面变化，让用户再点一次
+   * 「保存」没有意义；同理它也不该有「未保存」状态 —— 状态就在开关本身。
+   */
+  const renderHiddenToggle = (): React.JSX.Element => (
+    <div key="stp-hidden-enabled" className="stp-field">
+      {renderToggleRow({
+        title: '启用隐藏会话',
+        hint: HIDDEN_ENABLED_HINT,
+        checked: hiddenEnabled,
+        onChange: (next) => {
+          setFailed(false);
+          setHiddenEnabledDraft(next);
+          // 布尔值**显式写**而不是 unset：万一组合层把默认值配成了 false，
+          // unset 会让这次「启用」落回 false，看起来像没生效。
+          void scope.set('hiddenEnabled', next).catch(() => {
+            // 写没落地：撤回乐观值（快照仍是旧值），页脚会报一条。
+            setHiddenEnabledDraft(undefined);
+            setFailed(true);
+          });
+        },
+      })}
+    </div>
+  );
 
   const renderField = (desc: FieldDesc): React.JSX.Element => {
     const overridden = isOverridden(desc);
@@ -833,6 +884,8 @@ export function SettingsCard({
    * slot），一旦上游改版让行识别失效，隐藏列表就变成用户自己删不掉的死数据 ——
    * 这一块是官方界面里唯一的兜底出口，所以它刻意**不进 `FIELDS`**：
    * 它不参与「自定义 / 未保存 / 保存」那套草稿机制，点了就直接写。
+   *
+   * 总开关关着时整块不渲染（调用点判断）：功能都不执行了，谈"隐藏了多少条"没有意义。
    */
   const renderRescue = (): React.JSX.Element => {
     const hiddenCount = Array.isArray(section.hiddenSessions) ? section.hiddenSessions.length : 0;
@@ -843,8 +896,7 @@ export function SettingsCard({
           <span className="stp-label">隐藏的会话</span>
         </div>
         <p className="stp-hint">
-          {`已隐藏 ${hiddenCount} 条。悬停侧边栏的会话行可隐藏 / 取消隐藏，「工作区」那行放大镜左边的眼睛是一键全显 / 全隐；` +
-            '隐藏只影响侧边栏显不显示，会话本身、搜索与标题都照常。'}
+          {`当前已隐藏 ${hiddenCount} 条会话。隐藏仅影响侧边栏的呈现，不影响会话内容与搜索。`}
         </p>
         <div className="stp-rescueActions">
           <button
@@ -870,6 +922,8 @@ export function SettingsCard({
   // 以草稿为准：把开关关掉后，下面那些只对模型有意义的项应当**立刻**消失，
   // 不用等保存。关掉之后没有什么可配的，留着只会让人以为还生效。
   const modelMode = modeDesc === undefined || draftText(modeDesc) !== 'rules';
+  // 总开关关着的时候，「隐藏的会话」那一块没有意义（根本不存在隐不隐藏），整块收起来。
+  const hiddenEnabled = hiddenEnabledDraft ?? hiddenEnabledValue;
   // provider 与 model 合并成一行（两个下拉）渲染，所以 model 不单独出行。
   const visibleFields = FIELDS.filter(
     (desc) => (desc.modelOnly !== true || modelMode) && desc.field !== 'model',
@@ -915,7 +969,8 @@ export function SettingsCard({
                 ? renderModelPair(desc, modelDesc)
                 : renderField(desc);
             })}
-          {renderRescue()}
+          {renderHiddenToggle()}
+          {hiddenEnabled ? renderRescue() : null}
           <div className="stp-footer">
             {failed ? (
               <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>
