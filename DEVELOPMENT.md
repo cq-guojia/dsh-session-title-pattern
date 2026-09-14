@@ -48,6 +48,11 @@
 > 为什么不直接发 `@guojia/...`：能用，但包名会跟用户名绑定；无 scope 的名字更中性，
 > 将来换账号也不用改包名。
 
+**顺带补上 `LICENSE`**（MIT，署名 `cq-guojia`）：`package.json` 一直声明着 MIT，
+但仓库里从来没有这个文件 —— GitHub 与将来的 npm 页面都会显示「无许可证」。
+npm 本就会**无条件打包** `LICENSE`（不受 `files` 白名单约束），这里仍然显式列进
+`files`，免得看的人以为它会被漏掉。
+
 ### v0.6.5
 
 **修「解除锁定」必失败**：
@@ -1323,33 +1328,31 @@ Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
 ## 最近提交
 
 ```
+63d60fc feat!: 包名去掉 scope 改为 dsh-session-title-pattern，转向 npm 发布 (v0.6.6)
+1442347 docs: 更新 DEVELOPMENT.md 阶段追踪至 v0.6.5 现状
 cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改名标题不指认消息）(v0.6.5)
 4ce809e fix: 远端返回值按多形状容错剥取，草稿与锁定态读不回来的根因 (v0.6.4)
 faa289c fix: 草稿补模型路由、锁定态改为查 host，并加命令注册自检 (v0.6.3)
-714dfe2 fix: 卡片命令行补前导斜杠，修复自动生成/保存/锁定全部失灵；移除 REVIEW.md 死链 (v0.6.2)
-c61b483 feat: 重命名会话卡片——预填/草稿生成/单纯解锁 (v0.6.0)
 ```
 
 ---
 
 ## 待办事项（下一步）
 
-1. **补 `LICENSE` 文件** —— `package.json` 声明了 MIT，但仓库里没有这个文件
-   （GitHub 也显示 license 为空）。发 npm 前应补上，并加进 `package.json` 的 `files`
-2. **发 npm** —— `npm pack --dry-run` 先看清单 → `npm publish`；
+1. **发 npm** —— `npm pack --dry-run` 先看清单 → `npm publish`；
    发布后把 README 的安装首选从 `github:` 改成 npm 包名
-3. **npm 装机验证** —— 换 npm 通道装一次，重点确认 `peerDependencies` 里那 7 个
+2. **npm 装机验证** —— 换 npm 通道装一次，重点确认 `peerDependencies` 里那 7 个
    `@deepseek-ai/*` 能正常解析（github 装的是同一份 `package.json`，理论上一致，
    但换 registry 解析是第一次真跑）
-4. **上架 dsh-market** —— 向 awesome-dsh-plugin 提 PR，新增
+3. **上架 dsh-market** —— 向 awesome-dsh-plugin 提 PR，新增
    `data/plugins/cq-guojia__dsh-session-title-pattern.yml`；**禁止手写 `npm:` 字段**
    （CI 会拒），npm 映射由 registry 自动采集
-5. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
+4. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
    与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
    再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
-6. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
+5. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
    `parseTitleOutput` / `buildPromptInput` / `composeTitle`
-7. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+6. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
 > 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。
