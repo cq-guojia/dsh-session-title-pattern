@@ -1284,26 +1284,32 @@ host 与 client 两端都已采用。
 | 5.4 | ✅ | Tag 发布版本（每个版本同名 tag，最新 `v0.6.5`） | 持续 |
 | 5.5 | ✅ | 推送 Tag 到 GitHub | 持续 |
 | 5.6 | ⏳ | 创建 GitHub Release —— **一个都没建过**，目前只有 tag | 未做 |
-| 5.7 | ⏳ | 上架 dsh-market（向 awesome-dsh-plugin 提 PR） | 待提 PR |
+| 5.7 | 🔄 | 上架 dsh-market —— **PR #5064 已提交，CI 通过，等审核合并** | 2026-09-14 |
 
-> 5.7 的前置条件（v0.5.18 记的 checklist）**已全部满足**：仓库已有 **`dsh-plugin` topic**、
-> 创建于 2026-09-12T09:10Z（**已过 1 天门槛**）。剩下的只是提 PR。
+> 5.7 的流程与已核对项：仓库已有 **`dsh-plugin` topic**、创建于 2026-09-12（**已过 1 天门槛**）；
 > 上架 = 往 awesome-dsh-plugin **新增一个文件**
-> `data/plugins/cq-guojia__dsh-session-title-pattern.yml`
-> （**不要**改它的 README，那是脚本生成的）。
+> `data/plugins/cq-guojia__dsh-session-title-pattern.yml`（**不要**改它的 README，脚本生成的）。
 >
 > ⚠️ **条目里禁止手写 `npm:` 字段** —— CI 会直接拒。npm 映射由 registry **自动采集**，
 > 前提是 `package.json` 的 `repository` 指回被收录的仓库（已满足）。
+>
+> 提 PR 之后才查到的两条实情（事先没预料到）：
+> 1. 市场里**已有 4 个同类插件**（`weibaohui/dsh-smart-title` 思路最接近）。
+>    contributing 明写「已被现有条目覆盖」只是**平局排序依据、不是既得利益**，规则是「谁更好」，
+>    所以不是硬性障碍；PR 正文里主动写清了机制差异（结构化 / 成本与会话长度无关 / 可零 token），
+>    省得评审自己去逐个比对。
+> 2. **PR 正文要写清功能与仓库 URL**。条目文件里虽然有 `url:` 与 `description:`，
+>    但那躲在文件里，人看 PR 时看不到 —— 第一版正文只写了合规自检，写歪了，已改。
 
 ---
 
-### Phase 6: 发布到 npm 🔄
+### Phase 6: 发布到 npm ✅
 
 | 步骤 | 状态 | 说明 | 完成时间 |
 |------|------|------|---------|
 | 6.1 | ✅ | 登录 npm（`npm login`，用户名 `guojia`） | 2026-09-14 |
 | 6.2 | ✅ | 发布到 npm（`dsh-session-title-pattern@0.6.6`，首次发布） | 2026-09-14 |
-| 6.3 | ⏳ | 在 dsh 上装一次验证（重点看 `peerDependencies` 能否解析） | 待执行 |
+| 6.3 | ✅ | 装机验证：**npm 与 `github:` 两个通道各装一次都成功**，`peerDependencies` 解析无问题 | 2026-09-14 |
 
 > **路线已从「不做」改回「要做」**（v0.6.6）。v0.5.18 查到的「不发 npm 也能上架」
 > 依然成立，但市场**推荐**发 npm：预构建安装可以跳过 `allowBuilds` 构建授权那一步。
@@ -1336,15 +1342,15 @@ Phase 2: 构建与编译    ✅ 100%  (5/5，产物决策改为提交 lib/)
 Phase 3: 本地测试      ✅ 100%  (6/6，持续实机验证，无自动化测试)
 Phase 4: 完善功能      🔄  40%  (4.1 / 4.2 部分完成；多语言 / 单测 / E2E 未做)
 Phase 5: 发布准备      🔄  71%  (5/7，余 GitHub Release 与 dsh-market 上架)
-Phase 6: 发布到 npm    🔄  67%  (2/3，已发布 v0.6.6，待装机验证)
+Phase 6: 发布到 npm    ✅ 100%  (3/3)
 Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
 
-表格共 40 步（Phase 5 本次补了 5.7）
-  明确完成  28 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步 + 6.1 / 6.2
-  进行中     6 步  = Phase 4 的 4.1 / 4.2 + Phase 7 的 4 项
-  未做       6 步  = 4.3 / 4.4 / 4.5、5.6 / 5.7、6.3
+表格共 40 步（Phase 5 补了 5.7）
+  明确完成  29 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步 + Phase 6 的 3 步
+  进行中     7 步  = Phase 4 的 4.1 / 4.2 + Phase 5 的 5.7 + Phase 7 的 4 项
+  未做       4 步  = 4.3 / 4.4 / 4.5、5.6
 
-当前版本: v0.6.6（已发 npm 并打 tag v0.6.6）
+当前版本: v0.6.6（已发 npm 并打同名 tag；市场 PR #5064 等审核）
 ```
 
 ---
@@ -1354,29 +1360,25 @@ Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
 > 快照，写文档时的状态。
 
 ```
+1393dee docs: 安装首选改为 npm 通道，并记录 v0.6.6 发版 (v0.6.6)
 8312b2b chore: 补上缺失的 LICENSE（MIT，署名 cq-guojia）
 63d60fc feat!: 包名去掉 scope 改为 dsh-session-title-pattern，转向 npm 发布 (v0.6.6)
 1442347 docs: 更新 DEVELOPMENT.md 阶段追踪至 v0.6.5 现状
 cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改名标题不指认消息）(v0.6.5)
-4ce809e fix: 远端返回值按多形状容错剥取，草稿与锁定态读不回来的根因 (v0.6.4)
 ```
 
 ---
 
 ## 待办事项（下一步）
 
-1. **npm 装机验证**（Phase 6.3）—— 在 dsh 上换 npm 通道装一次，重点确认
-   `peerDependencies` 里那 7 个 `@deepseek-ai/*` 能正常解析
-   （github 装的是同一份 `package.json`，理论上一致，但换 registry 解析是第一次真跑）
-2. **上架 dsh-market**（Phase 5.7）—— 向 awesome-dsh-plugin 提 PR，新增
-   `data/plugins/cq-guojia__dsh-session-title-pattern.yml`；**禁止手写 `npm:` 字段**
-   （CI 会拒），npm 映射由 registry 自动采集 —— 已发 npm 且 `repository` 指回本仓库，条件齐了
-3. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
+1. **跟 dsh-market 的 PR #5064**（Phase 5.7）—— 现在等人工审核；
+   若被打回，往**同一个分支**（`cq-guojia:add-session-title-pattern`）推一次修复即可，不用重开 PR
+2. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
    与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
    再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
-4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
+3. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
    `parseTitleOutput` / `buildPromptInput` / `composeTitle`
-5. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+4. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
 > 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。
