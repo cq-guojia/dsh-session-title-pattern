@@ -14,10 +14,15 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import { Button, IconEditOutline16, Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 // settingsScope 的类型增强在设置包自身的 client 入口里。
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
+// `remote.commands` 的入参是品牌化的 SessionId，不能拿裸 string 顶。
+import type { SessionId } from '@deepseek-ai/dsh-session/types';
 
 import { SETTINGS_NS, SettingsCard } from './settings-card';
 import type { CredentialsFace, LlmDirectory, PluginConfig } from './settings-card';
 import { SETTINGS_CSS, SETTINGS_STYLE_ID } from './settings-css';
+import { injectStyle, removeStyle } from './hidden/dom';
+import { installHiddenSessions } from './hidden/sidebar';
+import { LOG } from './log';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -74,9 +79,6 @@ const STATE_LINE = '/title-state';
 const REQUIRED_COMMANDS = [RENAME_LINE, LOCK_LINE, UNLOCK_LINE, SUGGEST_LINE, STATE_LINE].map(
   (line) => line.slice(1),
 );
-
-/** 浏览器控制台前缀，便于排查。 */
-const LOG = '[dsh-session-title-pattern]';
 
 /** 注入的样式元素 id。带 id 是为了判重，保证重复激活不会叠加规则。 */
 const CRUMB_STYLE_ID = 'dsh-session-title-pattern-crumb-width';
@@ -364,21 +366,6 @@ function GenerateTitleAction({
  * 上游若重命名该类名，本规则会**静默失效**（不报错、不崩溃，只是标题又变短）。
  * 排查方法：DevTools 选中标题元素，看它 class 属性里是否还有 `_crumbCurrent`。
  */
-/** 按 id 幂等地往页面注入一段样式。重复激活不会叠加。 */
-function injectStyle(id: string, css: string): void {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById(id) !== null) return;
-  const style = document.createElement('style');
-  style.id = id;
-  style.textContent = css;
-  document.head.append(style);
-}
-
-function removeStyle(id: string): void {
-  if (typeof document === 'undefined') return;
-  document.getElementById(id)?.remove();
-}
-
 function installCrumbWidth(): void {
   injectStyle(CRUMB_STYLE_ID, `[class*="_crumbCurrent"]{max-width:${CRUMB_MAX_WIDTH} !important;}`);
 }
@@ -451,7 +438,7 @@ export function apply(ctx: Context): void {
    * 「锁定态」靠它拿 locked/unlocked）；失败记控制台并 resolve undefined ——
    * 界面保持原状，host 侧留有日志。
    */
-  const runLine = (sessionId: string, line: string): Promise<string | undefined> => {
+  const runLine = (sessionId: SessionId, line: string): Promise<string | undefined> => {
     if (commands === undefined) {
       console.warn(`${LOG} remote.commands 尚未就绪，无法执行 ${line}`);
       return Promise.resolve(undefined);
@@ -484,7 +471,7 @@ export function apply(ctx: Context): void {
    * `execute()` 对「命令没注册」只回一个 undefined、不留任何痕，表现就是点了没反应。
    * 打开面板时列一次命令表，缺哪条直接写进控制台 —— 不用再靠猜。
    */
-  const checkCommands = (sessionId: string): void => {
+  const checkCommands = (sessionId: SessionId): void => {
     if (commands === undefined) return;
     void commands
       .list(sessionId)
@@ -570,5 +557,12 @@ export function apply(ctx: Context): void {
       ),
     );
     console.info(`${LOG} 已注册设置卡片到 settings.plugin.item（${SETTINGS_NS}）`);
+  });
+
+  // 隐藏会话：把自己维护的隐藏列表落到侧边栏的行上（详见 hidden/sidebar.ts）。
+  // 走 settingsScope 绑到与设置卡片**同一个命名空间** —— DOM 层不在 React 里，
+  // 用不了卡片那套 props，只能靠这个面读写同一份设置文档。
+  ctx.inject(['settingsScope'], (sub) => {
+    installHiddenSessions(sub, sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS }));
   });
 }

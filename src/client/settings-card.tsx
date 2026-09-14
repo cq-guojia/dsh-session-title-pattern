@@ -29,6 +29,12 @@ export interface PluginConfig {
   maxOutputTokens?: number;
   template?: string;
   maxBytes?: number;
+  /** 被用户隐藏的会话 id（本插件私有的显示层开关，与平台「归档」无关）。 */
+  hiddenSessions?: string[];
+  /** 「工作区」区域标题行那只眼睛的总开关：是否显示被隐藏的会话。 */
+  revealHiddenAll?: boolean;
+  /** 按工作区的显式覆盖；键不存在 = 跟随 `revealHiddenAll`。 */
+  revealHiddenWorkspaces?: Record<string, boolean>;
 }
 
 /**
@@ -45,6 +51,9 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   timeoutMs: 30_000,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
+  hiddenSessions: [],
+  revealHiddenAll: false,
+  revealHiddenWorkspaces: {},
 };
 
 /** `llm` 远端命名空间里我们用到的方法（结构化声明，不引它的类型入口）。 */
@@ -784,6 +793,45 @@ export function SettingsCard({
     );
   };
 
+  /**
+   * 自救块：只读状态 + **立即生效**的「全部取消隐藏」。
+   *
+   * 为什么需要它：隐藏是靠往侧边栏真实 DOM 上做标记实现的（上游没有能过滤列表的
+   * slot），一旦上游改版让行识别失效，隐藏列表就变成用户自己删不掉的死数据 ——
+   * 这一块是官方界面里唯一的兜底出口，所以它刻意**不进 `FIELDS`**：
+   * 它不参与「自定义 / 未保存 / 保存」那套草稿机制，点了就直接写。
+   */
+  const renderRescue = (): React.JSX.Element => {
+    const hiddenCount = Array.isArray(section.hiddenSessions) ? section.hiddenSessions.length : 0;
+    const revealing = section.revealHiddenAll === true;
+    return (
+      <div key="stp-rescue" className="stp-field">
+        <div className="stp-head">
+          <span className="stp-label">隐藏的会话</span>
+        </div>
+        <p className="stp-hint">
+          {`已隐藏 ${hiddenCount} 条。悬停侧边栏的会话行可隐藏 / 取消隐藏，「工作区」那行右侧的眼睛是一键全显 / 全隐；` +
+            '隐藏只影响侧边栏显不显示，会话本身、搜索与标题都照常。'}
+        </p>
+        <div className="stp-rescueActions">
+          <button
+            type="button"
+            className="stp-discard"
+            disabled={!writable || (hiddenCount === 0 && !revealing)}
+            onClick={() => {
+              setFailed(false);
+              // 直接写、不经过「保存」：它是兜底出口，越少前置条件越好。
+              void scope.unset('hiddenSessions').catch(() => setFailed(true));
+              void scope.unset('revealHiddenWorkspaces').catch(() => setFailed(true));
+            }}
+          >
+            全部取消隐藏
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (!ready) return null;
 
   const modeDesc = FIELDS.find((desc) => desc.field === 'mode');
@@ -834,6 +882,7 @@ export function SettingsCard({
                 ? renderModelPair(desc, modelDesc)
                 : renderField(desc),
             )}
+          {renderRescue()}
           <div className="stp-footer">
             {failed ? (
               <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>

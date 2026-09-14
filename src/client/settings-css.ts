@@ -52,6 +52,8 @@ export const SETTINGS_CSS = `
 .stp-toggleRow{color:var(--dsw-alias-label-primary);justify-content:space-between;align-items:center;gap:16px;font-size:13px;line-height:1.5;display:flex}
 .stp-toggleLabel{flex:1;min-width:0;flex-direction:column;gap:2px;display:flex}
 .stp-toggleTitle{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}
+/* 自救块里的按钮行（「全部取消隐藏」）。 */
+.stp-rescueActions{display:flex;gap:8px}
 /* ---- 底部：右对齐的保存/放弃（官方 .footer / .save / .discard） ---- */
 .stp-footer{border-top:.5px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex}
 .stp-failed{min-width:0;color:var(--dsw-alias-label-error);flex:1;margin:0;font-size:12px;line-height:1.5}

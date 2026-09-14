@@ -11,9 +11,82 @@
 
 ---
 
-## 当前版本：v0.6.6
+## 当前版本：v0.7.0
 
-### v0.6.6（本次）
+### v0.7.0（本次）
+
+**新功能：隐藏会话。** 用户痛点原话：「dsh 的对话只有归档，归档就找不到了，而且就有点像
+放入垃圾箱的感觉。但对话多了管理又很麻烦。」—— 插件自己维护一份隐藏列表，被隐藏的会话
+默认不在侧边栏显示，随时一键显示回来。
+
+**先查清了平台能不能做，结论是「不能，只能在 DOM 层做」**（这一步决定了整个方案）：
+
+- `sidebar.workspaces` 是 **single** 槽位且已被 ui-workspace 的 `WorkspaceBrowser` 占用
+  —— 注册即整体替换，会话列表会消失；`sectionHeader` 内部也没有任何 slot 洞。
+- 会话行与工作区行的三点菜单项都是组件内写死的数组（`sessionMenuItems` /
+  `workspaceMenuItems`），`Menu` 只渲染 `items` prop，没有 children / slot / render-prop。
+  连 `anchor` / `footer` 都只是「插入自己的 ReactNode」，**无法按会话过滤既有项**。
+- 行元素上**没有** `data-session-id` 之类的属性（只有 `class` / `role="treeitem"` /
+  `aria-selected`），会话 id 只能沿 React fiber 上溯取 `memoizedProps`。
+
+**为什么不复用平台的「归档」**：归档是 host 权威且**单向**的 —— `ctx.workspaceRegistry`
+只有 `archiveSession()`，客户端 `IWorkspaces` 也没有任何 unarchive；`ui-workspace` 的
+已知限制里明写 *No Session deletion or unarchive control*。而且归档是**全局**的
+（所有浏览器、所有设备一致），用户要的是"我自己的列表 + 一个开关"。所以这条只作为对比
+写进 README，没有实现。
+
+**实现（四个新文件 + 三处改动）**：
+
+| 文件 | 作用 |
+| --- | --- |
+| `src/client/hidden/config.ts` | 隐藏列表的唯一真源：绑 `settingsScope` 读写同一份设置文档；**本地乐观值**广播（点一下立刻生效，不等 host 往返）；300ms 去抖 + **整体覆盖写**（读-改-写在连点下会丢写） |
+| `src/client/hidden/dom.ts` | fiber 反查 id、幂等注入眼睛（`data-stp-eye`）、样式注入、只观察侧边栏区域的 `MutationObserver`（250ms 轮询重新发现区域）、rAF 帧合并、fail-safe |
+| `src/client/hidden/sidebar.ts` | decorate 主流程：会话行 / 搜索结果行的藏与淡化、三处眼睛的注入与状态 |
+| `src/client/hidden/icons.ts` | 两个内联 SVG（眼睛 / 划线眼）。用官方 `IconXxx16` 不行 —— 那是 React 组件，原生注入的节点里渲染不了 |
+
+- `src/host/index.ts`：`Config` 增加 `hiddenSessions` / `revealHiddenAll` /
+  `revealHiddenWorkspaces`（`z.dict(z.boolean())`，已实证 schemastery 与客户端设置包都支持）
+- `src/client/settings-card.tsx`：`PluginConfig` 同步三个字段；正文加**自救块**
+  （已隐藏 N 条 + 立即生效的「全部取消隐藏」），刻意**不进 `FIELDS`** —— 它不该参与
+  「自定义 / 未保存 / 保存」那套草稿机制
+- `src/client/index.tsx`：`injectStyle` / `removeStyle` / `LOG` 迁到 `hidden/dom.ts`
+  与 `log.ts` 复用；`apply` 里挂上 `installHiddenSessions`
+
+**顺手修掉一个真 bug（host 侧）**：`installSection` 的 `onChange` 原本无条件
+`states.clear()`（清空标题滚动摘要）。隐藏 / 显示会频繁改同一份设置文档，照旧写法
+**每点一次眼睛就会把模型逐轮积累的摘要与主线清掉**，标题被重新归纳一遍。
+现在按 `titleStateSignature()` 比对，只有 `mode` / `provider` / `model` / `retitleEvery` /
+`timeoutMs` / `maxOutputTokens` / `maxInputBytes` 真的变了才清。
+
+**几处刻意的取舍**：
+
+1. **眼睛注入到上游已有的 `_rowActions` 里**（那个容器本来就 hover 才 `inline-flex`），
+   可见性交给上游 CSS 管，我们不必自己写 hover 规则；用 `style.order = -1` 排在「…」左边，
+   而不是 `insertBefore` —— 不必跟 React 抢 DOM 位置。
+2. **只写行内 `style`，绝不加 class**：React 每次渲染都会整体重写 `className`，加上的
+   类名会被抹掉；而这些行没有 `style` prop，行内样式 React 不会碰。
+3. **当前会话先不藏**（用户要求）：点隐藏后它仍在侧边栏，切走之后自然消失。
+4. **fail-safe**：一趟 decorate 里「有行、却一条 id 都解析不出来」= 行识别整体失效 →
+   本趟**什么都不改**（连眼睛都不注入，免得留一排点了没反应的死按钮），只 warn 一次。
+5. **区域标题行的总开关**：插到放大镜左边，并把 `_searchSlot` 自带的
+   `margin-left:auto` 归零、让给我们 —— 两个 auto 外边距会平分剩余空间，眼睛会被挤到中间。
+   折叠成图标栏时上游不渲染 `_searchSlot`，降级为挂在「+」旁边。
+
+**已知代价**（都写进 README 了）：依赖上游类名后缀与 fiber 结构，上游改版即静默失效；
+分组标题的会话计数按未过滤数据算，会偏大；未分组桶没有按工作区的眼睛；
+隐藏列表不做清理（归档或消失的会话 id 仍留着）。
+
+**发布通道收敛为「只有 npm」**（用户决定，与 v0.6.6 的「npm 正式 / github 测试」不同）：
+
+- README 里「也可以从 GitHub 直装」**整节删除**，连同「GitHub 直装更新失败怎么办（先查网络）」
+  一整节、以及「关于版本锁定」表里的 GitHub 一栏。以后再发版一律发 npm。
+- **顺带修掉两处因此失效的旧建议**：「客户端与 dsh 不兼容请用 v0.3.2」与
+  「回退到纯命令版 v0.2.0」—— 这两个版本**从未发布到 npm**，而 npm 上最早的 0.6.6
+  已经带浏览器端代码，所以现在只剩「升级 dsh」或「先停用本插件」两条路。
+- DEVELOPMENT.md 里 v0.5.x / v0.6.6 那些关于 `github:` 安装的记录**刻意保留** ——
+  它们是当时的事实记录，删掉反而看不懂历史。
+
+### v0.6.6
 
 **包名去掉 scope：`@cq-guojia/dsh-session-title-pattern` → `dsh-session-title-pattern`**（为发 npm 做准备）。
 
@@ -1350,7 +1423,7 @@ Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
   进行中     7 步  = Phase 4 的 4.1 / 4.2 + Phase 5 的 5.7 + Phase 7 的 4 项
   未做       4 步  = 4.3 / 4.4 / 4.5、5.6
 
-当前版本: v0.6.6（已发 npm 并打同名 tag；市场 PR #5064 等审核）
+当前版本: v0.7.0（新增「隐藏会话」；v0.6.6 已发 npm 并打同名 tag，市场 PR #5064 等审核）
 ```
 
 ---
@@ -1376,9 +1449,18 @@ cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改�
 2. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
    与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
    再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
-3. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
-   `parseTitleOutput` / `buildPromptInput` / `composeTitle`
-4. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+3. **实机验证 v0.7.0 的隐藏会话全链路**（同样只能实机跑）—— 顺序：
+   ① hover 会话行看眼睛是否出现 → ② 点它，行是否消失 → ③「工作区」行放大镜左边是否有
+   总开关，点一下是否全部显示（半透明）→ ④ 某个工作区的文件夹行是否出现眼睛、
+   它能否压过总开关 → ⑤ 隐藏当前正在打开的会话，确认它先不消失、切走后消失 →
+   ⑥ 搜索一个被隐藏的会话，确认结果行被藏 / 淡化 → ⑦ 刷新页面与重启 dsh，确认状态保持 →
+   ⑧ 设置卡片里「已隐藏 N 条」与实际一致，「全部取消隐藏」有效。
+   任何一步不生效就看控制台有没有本插件前缀的告警（`_sessionRow` / `__reactFiber$` 的排查
+   写在 README「没生效时怎么排查」）
+4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
+   `parseTitleOutput` / `buildPromptInput` / `composeTitle`；v0.7.0 的
+   `rowMode()` / `revealOf()` 也是纯函数，一并覆盖
+5. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
 > 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。

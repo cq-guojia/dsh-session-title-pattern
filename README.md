@@ -39,6 +39,7 @@ MMDD ｜ 类型 ｜ 主题
 | **失败不伤标题** | 超时 / 报错 / 没有可用路由时，一律**保留上一个标题**，不会把已经好用的标题刷没 |
 | **锁定与手动改名** | 标题旁的面板里一键锁定（停止自动更新）、直接改名（改名即自动锁定） |
 | **重启不丢上下文** | 主线与摘要从会话日志恢复，dsh 重启后标题不会退回"只看最近几轮"的状态 |
+| **隐藏会话** | 自己维护一份隐藏列表（存在本插件的设置里），被隐藏的会话**默认不显示**，随时一键显示回来 |
 
 ## 标题格式
 
@@ -64,90 +65,26 @@ dsh plugin --profile web add dsh-session-title-pattern
 从 npm 安装，**无需任何额外配置**。产物（`lib/`）随包发布，安装时**不需要编译**，
 也就不会出现「构建脚本待批准」那类提示。
 
-### 也可以从 GitHub 直装
-
-```bash
-dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
-```
-
-跟踪 `main` 分支，代码推上去就能装 —— **开发、或想尝最新提交时**用这条。
-日常使用建议走上面的 npm 通道：不必出海访问 `codeload.github.com`，国内更稳。
-
 > 包名：`dsh-session-title-pattern`（v0.6.6 起；此前是 `@cq-guojia/dsh-session-title-pattern`）。
-> `github:` 那条命令认的是**仓库路径**而不是包名，所以改名不影响它。
 
-### GitHub 直装更新失败怎么办（**先查网络**）
-
-> 走 npm 通道的话本节不适用 —— 它讲的全是 `github:` 安装要出海拉 tarball 的问题。
-
-更新失败时 dsh 会附一段说明，提到 `pnpm failed` 与 `allowBuilds`。
-**但那段是它对「pnpm 失败」的通用提示，未必是本次病因** —— 实测踩到的一次完全是网络问题，
-照着那个提示去改 `allowBuilds` 白折腾了一轮。所以按下面的顺序排查：
-
-**第一步：能不能连上 GitHub。** 本插件是 `github:` 装的，pnpm 要从
-`codeload.github.com` 下 tarball：
-
-```bash
-curl -sI -m 15 https://codeload.github.com/cq-guojia/dsh-session-title-pattern/tar.gz/HEAD | head -3
-git ls-remote https://github.com/cq-guojia/dsh-session-title-pattern.git HEAD
-```
-
-拿不到 `HTTP/2 200`、或 `git ls-remote` 报 TLS 错（`gnutls_handshake() failed`）
-→ **就是网络问题，等一会儿重试即可**，与插件无关。国内网络访问 GitHub 不稳是常态。
-
-**第二步：网络正常却仍然失败**，才轮到 pnpm 的构建许可。先确认被拦的到底是谁：
-
-```bash
-cd ~/.dsh/profiles/<profile> && pnpm approve-builds    # 列出「待批准构建」的包
-```
-
-列出来的**不是**本插件（更常见的是构建工具链之类的传递依赖），那就不是这里的问题。
-**列表为空**更是明确的信号：pnpm 并不认为有东西被拦，病因在别处。
-
-确实是我们的话，再按 pnpm v11 的格式加白名单：
-
-```yaml
-allowBuilds:
-  # 键必须用 git 地址 —— 只写包名对 git 托管包无效
-  'dsh-session-title-pattern@git+https://github.com/cq-guojia/dsh-session-title-pattern.git': true
-```
-
-> `allowBuilds` 是 pnpm **v11** 的设置，形状是 map（不是 v10 那种数组式的
-> `onlyBuiltDependencies`，后者 v11 已移除）。另外本插件的产物 `lib/` **已提交在仓库里**，
-> 安装时并不需要编译 —— 它本来就不该出现在待批准列表里。
-
-> 更新失败后 profile 可能停在「旧版本已卸掉、新版本没装上」的中间状态；
-> 网络恢复后再 `add` 一次即可，重启前先确认 `dsh` 还能起来。
-
-> **网络长期不稳的话**：`github:` 安装每次都要出海访问 `codeload.github.com`。
-> 直接改用 npm 通道即可绕开这条路：`dsh plugin --profile web add dsh-session-title-pattern`
-> （若该 profile 的 npm 源是国内镜像，如 `registry.npmmirror.com`，会更稳）。
+**只提供 npm 一条通道**：不再支持 `github:` 直装。每个发布版本都会同时推一份 npm 包与
+一个同名 tag，安装与更新一律走 npm（不必出海访问 `codeload.github.com`，国内更稳）。
 
 ### 关于版本锁定（重要）
-
-**npm 通道**（推荐）：
 
 | 写法 | 行为 |
 | --- | --- |
 | `dsh-session-title-pattern` | 跟随 `latest`，点「更新」升级到最新发布版 |
-| `dsh-session-title-pattern@0.6.6` | **钉死在 0.6.6**，点「更新」永远不会有变化 |
+| `dsh-session-title-pattern@0.7.0` | **钉死在 0.7.0**，点「更新」永远不会有变化 |
 
-**GitHub 直装通道**：
+⚠️ 用 `@版本号` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec 重装，
+结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新版本。
 
-| 写法 | 行为 |
-| --- | --- |
-| `github:cq-guojia/dsh-session-title-pattern` | 跟踪 `main` 分支，点「更新」会升级到最新提交 |
-| `github:cq-guojia/dsh-session-title-pattern#v0.6.6` | **钉死在 v0.6.6**，点「更新」永远不会有变化 |
-
-⚠️ 用 `@版本号` 或 `#tag` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec
-重装，结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新版本。
-
-**每个发布版本都会打一个同名 tag，并同时发一份 npm 包**（`v0.6.6` 对应 `package.json`
-的 `version`），两者一起推。想知道最新是哪个版本：
+**每个发布版本都会打一个同名 tag**（`v0.7.0` 对应 `package.json` 的 `version`），
+想知道最新是哪个版本：
 
 ```bash
-npm view dsh-session-title-pattern version                                       # npm
-git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git | tail -1
+npm view dsh-session-title-pattern version
 ```
 
 需要确定性时钉版本，需要能自动升级时不要钉。
@@ -232,6 +169,9 @@ git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git 
 | `maxInputBytes` | number | `4096` | 单次调用输入字节上限（滚动摘要的硬预算） |
 | `template` | string | `{MMDD}｜{type}｜{topic}` | 标题格式模板，写法见下 |
 | `maxBytes` | number | `80` | 标题总长度上限（UTF-8 字节），最小 20 |
+| `hiddenSessions` | string[] | `[]` | 被隐藏的会话 id（见[隐藏会话](#隐藏会话)）。界面上由眼睛按钮写，不用手填 |
+| `revealHiddenAll` | boolean | `false` | 是否显示被隐藏的会话（「工作区」行那只眼睛） |
+| `revealHiddenWorkspaces` | Record\<string, boolean\> | `{}` | 按工作区的显式覆盖，**键不存在 = 跟随 `revealHiddenAll`**；未分组用空串作键 |
 
 > **`template` 怎么写**：`{...}` 里可以写
 > `YYYY` `MM` `DD` `HH` `mm` `ss`（日期时间部件，**本地时区**，可任意拼接，
@@ -252,7 +192,8 @@ git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git 
 >
 > **兼容性**：设置卡片依赖 dsh 自带的设置界面（`@deepseek-ai/dsh-client-ui-settings*`），
 > 本插件的 `dsh.client.inject` 声明了它们。如果你的 dsh 版本没有这些包，客户端部分会一直
-> pending 并**导致启动失败** —— 这种情况请用 v0.3.2。
+> pending 并**导致启动失败** —— 遇到就升级 dsh，或先停用本插件
+> （见[客户端按钮导致启动失败时的自救](#客户端按钮导致启动失败时的自救)）。
 
 ## LLM 模式
 
@@ -356,6 +297,55 @@ git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git 
 > 手动重命名过的会话会进入「已固定」状态，自动命名随之停止调度。
 > `/retitle` 是解除固定、让规则重新接管的唯一途径。
 
+## 隐藏会话
+
+dsh 只有「归档」一种收起会话的方式，而归档是**单向**的：平台没有查看或取消归档的入口
+（`ui-workspace` 的已知限制原文：*No Session deletion or unarchive control*），归档之后
+会话就再也找不到了。会话一多，这件事很麻烦。
+
+本插件因此提供一份**自己维护的隐藏列表**：被隐藏的会话默认不出现在侧边栏，需要时一键
+显示回来，随时可逆。它和「归档」是两回事：
+
+| | 隐藏（本插件） | 归档（平台） |
+| --- | --- | --- |
+| 谁说了算 | 本插件的设置文档 | host 的 workspace 注册表 |
+| 范围 | 只影响侧边栏显不显示 | 所有分组界面都不再列出 |
+| 可逆 | 随时显示回来 | 平台没有取消归档的入口 |
+| 会话本身 | 完全不动 | 完全不动 |
+
+### 三处开关
+
+| 位置 | 作用 |
+| --- | --- |
+| **会话行**（悬停时行尾浮现的眼睛） | 隐藏 / 取消隐藏**这一条** |
+| **「工作区」区域标题行**（放大镜左边那只眼睛） | **总开关**：一键全显 / 全隐。点它会把各工作区的单独设置一并清掉，让所有工作区重新跟随它 |
+| **工作区文件夹行**（悬停时「…」左边那只眼睛） | **按工作区覆盖**总开关。只有该工作区里确实有隐藏会话时才会出现 |
+
+被显示出来的隐藏会话只有**一档视觉区分：颜色更淡（半透明）**，不加图标、不加文字、
+不加删除线 —— 一眼能看出它和普通会话不同，又不会抢眼。
+
+**当前正在打开的那一条会先留着**：点隐藏后它仍在侧边栏（避免正在聊的内容突然"消失"），
+切到别的会话后它自然按规则消失。
+
+### 它是什么、不是什么
+
+- 隐藏是**客户端显示层**的事：会话仍在会话列表里，打开、搜索（后端）、命令、标题自动
+  生成全部照常。
+- 隐藏**不会**删除会话，也不动会话日志。
+- 隐藏列表与开关状态存在本插件的设置文档里，所以刷新、重启、换浏览器都保持。
+- 设置卡片底部有一块「隐藏的会话」：显示已隐藏多少条，并提供**立即生效**的
+  「全部取消隐藏」—— 它是这个功能在官方界面里的兜底出口（见「已知限制」）。
+
+### 它是怎么实现的（以及为什么会失效）
+
+会话列表整个区域是 `sidebar.workspaces` 这个 **single** 槽位的占用者，注册即整体替换；
+会话行与工作区行的三点菜单项也都是组件内写死的数组，`Menu` 只渲染 `items` prop，
+**没有任何 slot 能按会话过滤列表行**。所以本插件只能在 DOM 层做：识别行元素 → 按规则
+直接改它的行内样式，并把眼睛按钮注入到上游已有的 hover 操作区里。
+
+代价是它依赖两样上游的内部结构（详见[已知限制](#已知限制)）：行元素的 CSS 类名后缀，
+以及 React fiber 上的 props 结构（行上没有会话 id 属性，只能沿 fiber 上溯去取）。
+
 ## 标题显示宽度
 
 dsh 头部把会话标题渲染成**面包屑的最后一段**，上游样式给它写死了 `max-width:220px`：
@@ -418,20 +408,16 @@ DevTools 选中标题元素，检查：
 ### 客户端按钮导致启动失败时的自救
 
 从 v0.2.1 起本插件带浏览器端代码（package.json 中的 `dsh.client`）。若产物与你的 dsh
-版本不兼容，dsh 会启动失败。两种恢复方式：
+版本不兼容，dsh 会启动失败。恢复方式是**只关掉本插件** —— 在 profile 的 `cordis.patch.yml` 里写：
 
-1. **只关掉本插件** —— 在 profile 的 `cordis.patch.yml` 里写：
+```yaml
+- id: session-title-pattern
+  disabled: true
+```
 
-   ```yaml
-   - id: session-title-pattern
-     disabled: true
-   ```
-
-2. **回退到纯命令版** —— v0.2.0 只有 host 端命令，没有浏览器代码：
-
-   ```bash
-   dsh plugin --profile web add git+https://github.com/cq-guojia/dsh-session-title-pattern.git#v0.2.0
-   ```
+> 没有「回退到纯命令版」这条路了：npm 上最早的发布版是 **0.6.6**，已经带浏览器端代码；
+> 更早的纯 host 端版本（v0.2.0 / v0.3.2）从未发布到 npm，而 `github:` 直装通道也不再提供。
+> 遇到不兼容请升级 dsh 后重新安装。
 
 ## 已知限制
 
@@ -441,6 +427,37 @@ DevTools 选中标题元素，检查：
 - **分类是顺序敏感的规则匹配**，「查一下接口文档并修复」会命中 `查询` 而非 `修复`；单字关键词（`改`/`去`/`清`/`做`）存在误判。
 - **标题会被写入两次**：服务先写入内置 fallback（前 5 个词），再被本插件的结果覆盖。这是上游设计，UI 上可能看到一次标题跳变。
 - **仅有中文分类词表**，英文消息也能匹配英文关键词，但类型标签仍是中文。
+
+### 隐藏会话（它与上游 DOM 绑得比较紧）
+
+平台没给任何能按会话过滤列表行的 slot（见[隐藏会话](#隐藏会话)），所以这部分是 DOM 层的
+实现，代价就是依赖上游的内部结构：
+
+- **依赖上游的 CSS 类名后缀**：`_sessionRow` / `_searchResultRow` / `_projectRow` /
+  `_sectionHeader` / `_searchSlot` / `_rowActions`。哈希前缀每个模块都不同、且随构建变化，
+  所以只按后缀匹配。
+- **依赖 React 的 fiber 内部结构**：行元素上**没有**会话 id 属性，id 只能沿
+  `__reactFiber$` 上溯取 `memoizedProps`（会话行是 `node.id`、搜索结果行是 `result.id`、
+  工作区分组行是 `group.workspaceId`）。
+- 上面任意一条失配，功能会**静默失效**（不报错、不崩溃，只是隐藏不生效）。此时插件会
+  **本趟什么都不改**，只在控制台留一条告警（只打一次）—— 宁可什么都不做，也不能乱动列表。
+- **分组标题上的会话计数会偏大**：上游按未过滤的数据算，隐藏不会改它；某个工作区的会话
+  全被隐藏时，那个文件夹行仍然留在原处。
+- **未分组桶没有按工作区的眼睛**：它不属于任何工作区，其中的隐藏项只能用总开关显示。
+- **折叠成图标栏（56px rail）时**：「工作区」那行不渲染标题与搜索框，放大镜也移出了这一行，
+  总开关会降级为挂在「+」旁边。
+- **搜索结果行同样会被隐藏 / 淡化** —— 否则一搜索就能"看到"它们，等于没隐藏。
+- **隐藏列表不做清理**：会话被归档、日志不在了，它仍留在列表里（数量照常显示），
+  这样取消隐藏之后不会"又想不起来当初藏了哪些"。
+
+#### 没生效时怎么排查
+
+1. DevTools 选中一条会话行，看 `class` 里是否还有 `_sessionRow` 后缀；
+2. 看控制台有没有带本插件前缀（`[dsh-session-title-pattern]`）的告警 —— 有就说明行识别
+   已经失效；
+3. 在控制台执行 `Object.keys($0).filter((k) => k.startsWith('__reactFiber$'))`
+   （`$0` 是当前选中的元素），结果为空说明 fiber 键变了。
+4. 无论哪种情况，都可以用设置卡片里的「全部取消隐藏」把隐藏列表清空。
 
 ## 开发
 

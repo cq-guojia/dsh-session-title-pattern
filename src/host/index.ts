@@ -116,6 +116,44 @@ export interface Config {
   maxOutputTokens: number;
   /** 单次模型调用输入字节上限（滚动摘要的硬预算）。 */
   maxInputBytes: number;
+  /**
+   * 被用户隐藏的会话 id（插件私有，与平台的「归档」无关）。
+   *
+   * 只影响客户端要不要显示这一行，**不动会话本身**：会话仍在会话列表数据里，
+   * 打开、搜索、命令、标题自动生成全部照常。清空这个数组即全部恢复显示。
+   */
+  hiddenSessions: string[];
+  /**
+   * 「工作区」区域标题行那只眼睛的总开关：是否显示被隐藏的会话。
+   *
+   * 单个工作区的显式覆盖（`revealHiddenWorkspaces`）优先于它。
+   */
+  revealHiddenAll: boolean;
+  /**
+   * 按工作区的显式覆盖：key 是 workspaceId，值 true 表示这个工作区显示隐藏会话。
+   *
+   * **键不存在 = 跟随 `revealHiddenAll`**；未分组桶用空串 `''` 作 key。
+   */
+  revealHiddenWorkspaces: Record<string, boolean>;
+}
+
+/**
+ * 「影响标题生成」的那部分配置的快照。
+ *
+ * 只有它变化时才该清空滚动摘要（`apply` 里的 `states`）：隐藏 / 显示会话的开关
+ * 也写在同一份设置文档里，但它们与标题毫无关系 —— 若照旧一律 `states.clear()`，
+ * 用户每点一次眼睛都会把模型逐轮积累的摘要与主线清掉，标题随即被重新归纳一遍。
+ */
+function titleStateSignature(config: Config): string {
+  return [
+    config.mode,
+    config.retitleEvery,
+    config.provider,
+    config.model,
+    config.timeoutMs,
+    config.maxOutputTokens,
+    config.maxInputBytes,
+  ].join('\u0000');
 }
 
 export const Config: z<Config> = z.object({
@@ -134,6 +172,11 @@ export const Config: z<Config> = z.object({
   // 调大不花钱（上限不是预扣费，模型真写了才计费），因此界面上不暴露这一项。
   maxOutputTokens: z.number().step(1).min(1).default(512),
   maxInputBytes: z.number().step(1).min(1).default(4096),
+  // 隐藏会话：插件私有的显示层开关，与平台「归档」无关（归档是 host 权威且单向的）。
+  hiddenSessions: z.array(z.string()).default([]),
+  revealHiddenAll: z.boolean().default(false),
+  // 动态 key 的字典：schemastery 的 dict 就是干这个的（键 = workspaceId）。
+  revealHiddenWorkspaces: z.dict(z.boolean()).default({}),
 });
 
 /**
@@ -666,17 +709,30 @@ export function apply(ctx: Context, config: Config): void {
   // 会遍历 host 提供的命名空间，并按命名空间找到我们在浏览器里注册的那张卡片。
   //
   // 同样不能直接写 `ctx.settings`（受保护代理），走 ctx.inject 延迟等待。
+  // 上一次「影响标题生成」的配置快照，用来判断这次 onChange 要不要清滚动摘要。
+  let lastTitleSignature = titleStateSignature(config);
+
   ctx.inject(['settings'], (settingsCtx) => {
     settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, config, {
       setSource: (current) => {
         source = current;
       },
       onChange: () => {
-        // 配置变了就清空滚动摘要：换了模型或重算间隔之后，旧摘要不再匹配新设置，
-        // 让下一次重算按新配置从头开始。
-        states.clear();
         const next = currentConfig();
-        logger.info(`设置已更新：mode=${next.mode}、retitleEvery=${next.retitleEvery}`);
+        // 只有影响标题生成的字段变了才清空滚动摘要：换了模型或重算间隔之后，旧摘要
+        // 不再匹配新设置，让下一次重算按新配置从头开始。
+        //
+        // 隐藏 / 显示会话也写在同一份文档里，却不该动滚动状态 —— 否则每次点眼睛
+        // 都会把摘要与主线清掉，标题被重新归纳一遍（见 titleStateSignature）。
+        const signature = titleStateSignature(next);
+        if (signature !== lastTitleSignature) {
+          lastTitleSignature = signature;
+          states.clear();
+        }
+        logger.info(
+          `设置已更新：mode=${next.mode}、retitleEvery=${next.retitleEvery}、` +
+            `隐藏 ${next.hiddenSessions.length} 条`,
+        );
       },
       validate: (value) => {
         // schema 表达不了的跨字段约束：provider 与 model 必须成对。

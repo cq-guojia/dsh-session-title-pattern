@@ -46,6 +46,25 @@ export interface Config {
   maxOutputTokens: number;
   /** 单次模型调用输入字节上限（滚动摘要的硬预算）。 */
   maxInputBytes: number;
+  /**
+   * 被用户隐藏的会话 id（插件私有，与平台的「归档」无关）。
+   *
+   * 只影响客户端要不要显示这一行，**不动会话本身**：会话仍在会话列表数据里，
+   * 打开、搜索、命令、标题自动生成全部照常。清空这个数组即全部恢复显示。
+   */
+  hiddenSessions: string[];
+  /**
+   * 「工作区」区域标题行那只眼睛的总开关：是否显示被隐藏的会话。
+   *
+   * 单个工作区的显式覆盖（`revealHiddenWorkspaces`）优先于它。
+   */
+  revealHiddenAll: boolean;
+  /**
+   * 按工作区的显式覆盖：key 是 workspaceId，值 true 表示这个工作区显示隐藏会话。
+   *
+   * **键不存在 = 跟随 `revealHiddenAll`**；未分组桶用空串 `''` 作 key。
+   */
+  revealHiddenWorkspaces: Record<string, boolean>;
 }
 export declare const Config: z<Config>;
 export declare function apply(ctx: Context, config: Config): void;
