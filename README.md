@@ -63,6 +63,10 @@ dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
 
 安装后**无需任何额外配置**。
 
+> **包名**：`dsh-session-title-pattern`（v0.6.6 起；此前是 `@cq-guojia/dsh-session-title-pattern`）。
+> 上面的 `github:` 命令认的是**仓库路径**而不是包名，所以改名不影响它。
+> npm 发布之后，这一行可以简化成 `dsh plugin --profile web add dsh-session-title-pattern`。
+
 ### 更新失败怎么办（**先查网络**）
 
 更新失败时 dsh 会附一段说明，提到 `pnpm failed` 与 `allowBuilds`。
@@ -93,8 +97,8 @@ cd ~/.dsh/profiles/<profile> && pnpm approve-builds    # 列出「待批准构�
 
 ```yaml
 allowBuilds:
-  # 键必须用 git 地址 —— 只写包名对 git 托管包无效；@ 开头的键要加引号
-  '@cq-guojia/dsh-session-title-pattern@git+https://github.com/cq-guojia/dsh-session-title-pattern.git': true
+  # 键必须用 git 地址 —— 只写包名对 git 托管包无效
+  'dsh-session-title-pattern@git+https://github.com/cq-guojia/dsh-session-title-pattern.git': true
 ```
 
 > `allowBuilds` 是 pnpm **v11** 的设置，形状是 map（不是 v10 那种数组式的

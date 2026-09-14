@@ -17,4 +17,4 @@
 
 - insert:
     - id: session-title-pattern
-      name: '@cq-guojia/dsh-session-title-pattern'
+      name: 'dsh-session-title-pattern'

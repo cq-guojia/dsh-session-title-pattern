@@ -11,9 +11,44 @@
 
 ---
 
-## 当前版本：v0.6.5
+## 当前版本：v0.6.6
 
-### v0.6.5（本次）
+### v0.6.6（本次）
+
+**包名去掉 scope：`@cq-guojia/dsh-session-title-pattern` → `dsh-session-title-pattern`**（为发 npm 做准备）。
+
+原 scope 在 npm 上不属于本账号（npm 用户名是 `guojia`，不是 `cq-guojia`），直接用会因无权限失败。
+三条路（建 org / 换成用户 scope `@guojia` / 去掉 scope）里选了**去掉 scope**：名字更干净，
+而且避开一个坑 —— **scoped 包在 npm 上默认按「私有包」发布**，不显式声明
+`publishConfig.access=public` 会直接报 `You must sign up for private packages`；
+无 scope 的包默认就是公开，没有这条规则，也就少一处配置。
+
+改动落在 6 处（必须全部同步，漏一处就装不上或产物对不上）：
+
+| 位置 | 作用 |
+| --- | --- |
+| `package.json` 的 `name` | 包的身份 |
+| `cordis.patch.yml` 的 `name:` | **必须跟着改**，否则 dsh 解析不到这个包 |
+| `tsdown.client.config.ts` 的 `PACKAGE_NAME` | 客户端产物的模块 id 由它生成 |
+| `lib/client.js` 等产物 | 重建后 `id:` 已是新名（`lib/` 是提交进仓库的产物） |
+| `package-lock.json` 的 `name` ×2 | 顺手把 root `version` 从 0.3.2 同步到当前版本 |
+| README 的 `allowBuilds` 示例键 | 去掉「`@` 开头的键要加引号」那半句 |
+
+**发布路线调整：npm 成为正式渠道，`github:` 直装退为测试通道。**
+
+| 通道 | 用途 | 版本 |
+| --- | --- | --- |
+| `github:cq-guojia/dsh-session-title-pattern` | **开发时测试**：推上去就能装，改完即验 | 跟踪 `main` |
+| `dsh-session-title-pattern`（npm） | **对外发布** | 发版号 |
+
+> `github:` 认的是**仓库路径**而不是包名，所以改名之后这条命令照旧可用 ——
+> 装进来的包名取自仓库里 `package.json` 的 `name`。副作用是 profile 里那条依赖记录的
+> **键**会变（旧 scope 的那份需要先卸掉），否则会残留成两份。
+>
+> 为什么不直接发 `@guojia/...`：能用，但包名会跟用户名绑定；无 scope 的名字更中性，
+> 将来换账号也不用改包名。
+
+### v0.6.5
 
 **修「解除锁定」必失败**：
 
@@ -1223,27 +1258,30 @@ host 与 client 两端都已采用。
 | 5.4 | ✅ | Tag 发布版本（每个版本同名 tag，最新 `v0.6.5`） | 持续 |
 | 5.5 | ✅ | 推送 Tag 到 GitHub | 持续 |
 | 5.6 | ⏳ | 创建 GitHub Release —— **一个都没建过**，目前只有 tag | 未做 |
-| 5.7 | ⏳ | 上架 dsh-market（向 awesome-dsh-plugin 提 PR） | 待用户 |
+| 5.7 | ⏳ | 上架 dsh-market（向 awesome-dsh-plugin 提 PR） | 待提 PR |
 
-> 5.7 的前置条件（v0.5.18 记的 checklist）：给仓库加 **`dsh-plugin` topic**、
-> 仓库**满 1 天**后再提 PR —— 首次提交 2026-09-12 19:15，**门槛现已满足**，
-> 剩下的纯属「待用户动手」。上架 = 往 awesome-dsh-plugin **新增一个文件**
+> 5.7 的前置条件（v0.5.18 记的 checklist）**已全部满足**：仓库已有 **`dsh-plugin` topic**、
+> 创建于 2026-09-12T09:10Z（**已过 1 天门槛**）。剩下的只是提 PR。
+> 上架 = 往 awesome-dsh-plugin **新增一个文件**
 > `data/plugins/cq-guojia__dsh-session-title-pattern.yml`
 > （**不要**改它的 README，那是脚本生成的）。
+>
+> ⚠️ **条目里禁止手写 `npm:` 字段** —— CI 会直接拒。npm 映射由 registry **自动采集**，
+> 前提是 `package.json` 的 `repository` 指回被收录的仓库（已满足）。
 
 ---
 
-### Phase 6: 发布到 npm ⏳（转为不做）
+### Phase 6: 发布到 npm 🔄
 
 | 步骤 | 状态 | 说明 | 完成时间 |
 |------|------|------|---------|
-| 6.1 | ⏳ | 登录 npm（`npm login`） | 不做 |
-| 6.2 | ⏳ | 发布到 npm（`npm publish`） | 不做 |
-| 6.3 | ⏳ | 验证 npm 包可安装 | 不做 |
+| 6.1 | ✅ | 登录 npm（`npm login`，用户名 `guojia`） | 2026-09-14 |
+| 6.2 | ⏳ | 发布到 npm（`npm publish`，包名 `dsh-session-title-pattern`） | 待执行 |
+| 6.3 | ⏳ | 验证 npm 包可安装 | 待执行 |
 
-> **改为 `github:` 直装，npm 发布非必需**（v0.5.18 查证）：dsh-market 的条目写成
-> `npm: null` + `install: dsh plugin --profile web add github:owner/repo` 即可上架。
-> 所以这三步**不需要做** —— 保留在表里只为说明原计划与实际路径的差异。
+> **路线已从「不做」改回「要做」**（v0.6.6）。v0.5.18 查到的「不发 npm 也能上架」
+> 依然成立，但市场**推荐**发 npm：预构建安装可以跳过 `allowBuilds` 构建授权那一步。
+> 包名取无 scope 的 `dsh-session-title-pattern`（scoped 包默认按私有包发布，见 v0.6.6）。
 
 ---
 
@@ -1269,15 +1307,15 @@ Phase 2: 构建与编译    ✅ 100%  (5/5，产物决策改为提交 lib/)
 Phase 3: 本地测试      ✅ 100%  (6/6，持续实机验证，无自动化测试)
 Phase 4: 完善功能      🔄  40%  (4.1 / 4.2 部分完成；多语言 / 单测 / E2E 未做)
 Phase 5: 发布准备      🔄  71%  (5/7，余 GitHub Release 与 dsh-market 上架)
-Phase 6: 发布到 npm    ⏳  不做  (0/3，已改 github: 直装)
+Phase 6: 发布到 npm    🔄  33%  (1/3，已登录 npm，待 publish)
 Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
 
 表格共 40 步（Phase 5 本次补了 5.7）
-  明确完成  26 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步
+  明确完成  27 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步 + 6.1 登录 npm
   进行中     6 步  = Phase 4 的 4.1 / 4.2 + Phase 7 的 4 项
-  未做       8 步  = 4.3 / 4.4 / 4.5、5.6 / 5.7、Phase 6 的 3 步
+  未做       7 步  = 4.3 / 4.4 / 4.5、5.6 / 5.7、6.2 / 6.3
 
-当前版本: v0.6.5（package.json 与最新 tag 一致）
+当前版本: v0.6.6（package.json 已改；**tag 未打**，待 npm 发版时一起）
 ```
 
 ---
@@ -1296,17 +1334,25 @@ c61b483 feat: 重命名会话卡片——预填/草稿生成/单纯解锁 (v0.6.
 
 ## 待办事项（下一步）
 
-1. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路**
-   —— v0.6.4 的「按形状逐层剥取远端返回值」与 v0.6.5 的解锁修复都还没实机确认：
-   打开卡片看控制台有无 `未取到执行结果` 告警，再走一遍
-   「自动生成 → 确定保存 → 锁定 → 解锁」
-2. **上架 dsh-market**（用户侧执行，见 Phase 5.7）
-   —— 确认仓库已有 `dsh-plugin` topic，然后向 awesome-dsh-plugin 提 PR
-3. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
+1. **补 `LICENSE` 文件** —— `package.json` 声明了 MIT，但仓库里没有这个文件
+   （GitHub 也显示 license 为空）。发 npm 前应补上，并加进 `package.json` 的 `files`
+2. **发 npm** —— `npm pack --dry-run` 先看清单 → `npm publish`；
+   发布后把 README 的安装首选从 `github:` 改成 npm 包名
+3. **npm 装机验证** —— 换 npm 通道装一次，重点确认 `peerDependencies` 里那 7 个
+   `@deepseek-ai/*` 能正常解析（github 装的是同一份 `package.json`，理论上一致，
+   但换 registry 解析是第一次真跑）
+4. **上架 dsh-market** —— 向 awesome-dsh-plugin 提 PR，新增
+   `data/plugins/cq-guojia__dsh-session-title-pattern.yml`；**禁止手写 `npm:` 字段**
+   （CI 会拒），npm 映射由 registry 自动采集
+5. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
+   与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
+   再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
+6. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
    `parseTitleOutput` / `buildPromptInput` / `composeTitle`
-4. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+7. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
-> 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交 → 打同名 tag 并推送。
+> 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
+> 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。
 
 ---
 
