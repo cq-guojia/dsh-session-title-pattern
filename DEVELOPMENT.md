@@ -53,6 +53,27 @@
 npm 本就会**无条件打包** `LICENSE`（不受 `files` 白名单约束），这里仍然显式列进
 `files`，免得看的人以为它会被漏掉。
 
+**已发布：`dsh-session-title-pattern@0.6.6`（2026-09-14，首次发 npm）。**
+
+发布这一段踩的坑值得记下来，都是绕不开的：
+
+1. **npm 现在要求「发布包必须 2FA」**，而 2FA 只剩 **WebAuthn 安全密钥**一种 ——
+   网页上的「认证器 App / TOTP」选项已经被拿掉了（`npm profile get` 会显示
+   `two-factor auth: disabled`，而 403 报错就是 `Two-factor authentication or
+   granular access token with bypass 2fa enabled is required to publish packages`）。
+2. 本机没有指纹、手机（小米）没有 GMS（`使用手机` 那条路要 Google Play 服务），
+   物理密钥又不愿意买 —— 最后走的是 **Bitwarden 浏览器扩展保存的通行密钥**：
+   免费、存在保险库里、跨设备同步，两台 Mac 与手机都能用。
+   前置条件只有一个：扩展 **Settings → Notifications → "Ask to save and use passkeys"** 要打开，
+   注册时在浏览器弹窗里选 **Save passkey**（选成「使用设备或硬件密钥」会把该域名拉黑）。
+3. CLI 发布时 `npm publish` 会报 `EOTP`，**必须先用 `npm login --auth-type=web`
+   刷新一次凭据**，之后再 `npm publish` —— 它会拉起浏览器让你用通行密钥确认一下。
+
+> 另一个一直存在的选项是 **Bypass 2FA 的 Granular Access Token**（`~/.npmrc` 里配
+> `_authToken`，发布时不用按指纹）。本次没走它，因为 npm 登录时已明示
+> `tokens that bypass 2FA are being restricted for account changes and direct publishing`。
+> 但它仍是多机器/CI 场景的官方兜底。
+
 ### v0.6.5
 
 **修「解除锁定」必失败**：
@@ -1281,12 +1302,15 @@ host 与 client 两端都已采用。
 | 步骤 | 状态 | 说明 | 完成时间 |
 |------|------|------|---------|
 | 6.1 | ✅ | 登录 npm（`npm login`，用户名 `guojia`） | 2026-09-14 |
-| 6.2 | ⏳ | 发布到 npm（`npm publish`，包名 `dsh-session-title-pattern`） | 待执行 |
-| 6.3 | ⏳ | 验证 npm 包可安装 | 待执行 |
+| 6.2 | ✅ | 发布到 npm（`dsh-session-title-pattern@0.6.6`，首次发布） | 2026-09-14 |
+| 6.3 | ⏳ | 在 dsh 上装一次验证（重点看 `peerDependencies` 能否解析） | 待执行 |
 
 > **路线已从「不做」改回「要做」**（v0.6.6）。v0.5.18 查到的「不发 npm 也能上架」
 > 依然成立，但市场**推荐**发 npm：预构建安装可以跳过 `allowBuilds` 构建授权那一步。
 > 包名取无 scope 的 `dsh-session-title-pattern`（scoped 包默认按私有包发布，见 v0.6.6）。
+>
+> 6.2 的坑见 v0.6.6 那条：npm 要求发布必须有 2FA，而 2FA 只剩 WebAuthn 安全密钥，
+> 且 CLI 发布前要先 `npm login --auth-type=web` 刷新凭据（否则报 `EOTP`）。
 
 ---
 
@@ -1312,47 +1336,47 @@ Phase 2: 构建与编译    ✅ 100%  (5/5，产物决策改为提交 lib/)
 Phase 3: 本地测试      ✅ 100%  (6/6，持续实机验证，无自动化测试)
 Phase 4: 完善功能      🔄  40%  (4.1 / 4.2 部分完成；多语言 / 单测 / E2E 未做)
 Phase 5: 发布准备      🔄  71%  (5/7，余 GitHub Release 与 dsh-market 上架)
-Phase 6: 发布到 npm    🔄  33%  (1/3，已登录 npm，待 publish)
+Phase 6: 发布到 npm    🔄  67%  (2/3，已发布 v0.6.6，待装机验证)
 Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
 
 表格共 40 步（Phase 5 本次补了 5.7）
-  明确完成  27 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步 + 6.1 登录 npm
+  明确完成  28 步  = Phase 1–3 全部 21 步 + Phase 5 的 5 步 + 6.1 / 6.2
   进行中     6 步  = Phase 4 的 4.1 / 4.2 + Phase 7 的 4 项
-  未做       7 步  = 4.3 / 4.4 / 4.5、5.6 / 5.7、6.2 / 6.3
+  未做       6 步  = 4.3 / 4.4 / 4.5、5.6 / 5.7、6.3
 
-当前版本: v0.6.6（package.json 已改；**tag 未打**，待 npm 发版时一起）
+当前版本: v0.6.6（已发 npm 并打 tag v0.6.6）
 ```
 
 ---
 
 ## 最近提交
 
+> 快照，写文档时的状态。
+
 ```
+8312b2b chore: 补上缺失的 LICENSE（MIT，署名 cq-guojia）
 63d60fc feat!: 包名去掉 scope 改为 dsh-session-title-pattern，转向 npm 发布 (v0.6.6)
 1442347 docs: 更新 DEVELOPMENT.md 阶段追踪至 v0.6.5 现状
 cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改名标题不指认消息）(v0.6.5)
 4ce809e fix: 远端返回值按多形状容错剥取，草稿与锁定态读不回来的根因 (v0.6.4)
-faa289c fix: 草稿补模型路由、锁定态改为查 host，并加命令注册自检 (v0.6.3)
 ```
 
 ---
 
 ## 待办事项（下一步）
 
-1. **发 npm** —— `npm pack --dry-run` 先看清单 → `npm publish`；
-   发布后把 README 的安装首选从 `github:` 改成 npm 包名
-2. **npm 装机验证** —— 换 npm 通道装一次，重点确认 `peerDependencies` 里那 7 个
-   `@deepseek-ai/*` 能正常解析（github 装的是同一份 `package.json`，理论上一致，
-   但换 registry 解析是第一次真跑）
-3. **上架 dsh-market** —— 向 awesome-dsh-plugin 提 PR，新增
+1. **npm 装机验证**（Phase 6.3）—— 在 dsh 上换 npm 通道装一次，重点确认
+   `peerDependencies` 里那 7 个 `@deepseek-ai/*` 能正常解析
+   （github 装的是同一份 `package.json`，理论上一致，但换 registry 解析是第一次真跑）
+2. **上架 dsh-market**（Phase 5.7）—— 向 awesome-dsh-plugin 提 PR，新增
    `data/plugins/cq-guojia__dsh-session-title-pattern.yml`；**禁止手写 `npm:` 字段**
-   （CI 会拒），npm 映射由 registry 自动采集
-4. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
+   （CI 会拒），npm 映射由 registry 自动采集 —— 已发 npm 且 `repository` 指回本仓库，条件齐了
+3. **实机验证 v0.6.4 / v0.6.5 的重命名卡片全链路** —— v0.6.4 的「按形状逐层剥取远端返回值」
    与 v0.6.5 的解锁修复都还没实机确认：打开卡片看控制台有无 `未取到执行结果` 告警，
    再走一遍「自动生成 → 确定保存 → 锁定 → 解锁」
-5. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
+4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
    `parseTitleOutput` / `buildPromptInput` / `composeTitle`
-6. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+5. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
 > 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。

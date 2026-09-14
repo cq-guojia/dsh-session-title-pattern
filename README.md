@@ -58,16 +58,27 @@ MMDD ｜ 类型 ｜ 主题
 ## 安装
 
 ```bash
+dsh plugin --profile web add dsh-session-title-pattern
+```
+
+从 npm 安装，**无需任何额外配置**。产物（`lib/`）随包发布，安装时**不需要编译**，
+也就不会出现「构建脚本待批准」那类提示。
+
+### 也可以从 GitHub 直装
+
+```bash
 dsh plugin --profile web add github:cq-guojia/dsh-session-title-pattern
 ```
 
-安装后**无需任何额外配置**。
+跟踪 `main` 分支，代码推上去就能装 —— **开发、或想尝最新提交时**用这条。
+日常使用建议走上面的 npm 通道：不必出海访问 `codeload.github.com`，国内更稳。
 
-> **包名**：`dsh-session-title-pattern`（v0.6.6 起；此前是 `@cq-guojia/dsh-session-title-pattern`）。
-> 上面的 `github:` 命令认的是**仓库路径**而不是包名，所以改名不影响它。
-> npm 发布之后，这一行可以简化成 `dsh plugin --profile web add dsh-session-title-pattern`。
+> 包名：`dsh-session-title-pattern`（v0.6.6 起；此前是 `@cq-guojia/dsh-session-title-pattern`）。
+> `github:` 那条命令认的是**仓库路径**而不是包名，所以改名不影响它。
 
-### 更新失败怎么办（**先查网络**）
+### GitHub 直装更新失败怎么办（**先查网络**）
+
+> 走 npm 通道的话本节不适用 —— 它讲的全是 `github:` 安装要出海拉 tarball 的问题。
 
 更新失败时 dsh 会附一段说明，提到 `pnpm failed` 与 `allowBuilds`。
 **但那段是它对「pnpm 失败」的通用提示，未必是本次病因** —— 实测踩到的一次完全是网络问题，
@@ -108,29 +119,38 @@ allowBuilds:
 > 更新失败后 profile 可能停在「旧版本已卸掉、新版本没装上」的中间状态；
 > 网络恢复后再 `add` 一次即可，重启前先确认 `dsh` 还能起来。
 
-> **网络长期不稳的话**：`github:` 安装每次都要出海访问 `codeload.github.com`。若该 profile 的
-> npm 源是国内镜像（如 `registry.npmmirror.com`），从 registry 安装会明显更稳。
+> **网络长期不稳的话**：`github:` 安装每次都要出海访问 `codeload.github.com`。
+> 直接改用 npm 通道即可绕开这条路：`dsh plugin --profile web add dsh-session-title-pattern`
+> （若该 profile 的 npm 源是国内镜像，如 `registry.npmmirror.com`，会更稳）。
 
 ### 关于版本锁定（重要）
 
-git 安装有两种写法，行为差别很大：
+**npm 通道**（推荐）：
 
 | 写法 | 行为 |
 | --- | --- |
-| `github:cq-guojia/dsh-session-title-pattern` | 跟踪 `main` 分支，点「更新」会升级到最新 |
-| `github:cq-guojia/dsh-session-title-pattern#v0.2.3` | **钉死在 v0.2.3**，点「更新」永远不会有变化 |
+| `dsh-session-title-pattern` | 跟随 `latest`，点「更新」升级到最新发布版 |
+| `dsh-session-title-pattern@0.6.6` | **钉死在 0.6.6**，点「更新」永远不会有变化 |
 
-⚠️ 用 `#tag` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec 重装，
-结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新 tag。
+**GitHub 直装通道**：
 
-**每个发布版本都会打一个同名 tag**（`v0.6.2` 对应 `package.json` 的 `version`），
-发版时 tag 与提交一起推。想知道最新是哪个版本：
+| 写法 | 行为 |
+| --- | --- |
+| `github:cq-guojia/dsh-session-title-pattern` | 跟踪 `main` 分支，点「更新」会升级到最新提交 |
+| `github:cq-guojia/dsh-session-title-pattern#v0.6.6` | **钉死在 v0.6.6**，点「更新」永远不会有变化 |
+
+⚠️ 用 `@版本号` 或 `#tag` 安装后，dsh-market / `dsh plugin update` 会按记录下来的 spec
+重装，结果版本纹丝不动（命令返回成功但版本未变）。要升级必须重新 `add` 并指定新版本。
+
+**每个发布版本都会打一个同名 tag，并同时发一份 npm 包**（`v0.6.6` 对应 `package.json`
+的 `version`），两者一起推。想知道最新是哪个版本：
 
 ```bash
+npm view dsh-session-title-pattern version                                       # npm
 git ls-remote --tags https://github.com/cq-guojia/dsh-session-title-pattern.git | tail -1
 ```
 
-需要确定性时用 tag，需要能自动升级时不要带 tag。
+需要确定性时钉版本，需要能自动升级时不要钉。
 
 ### 与内置 LLM 标题插件的关系
 
