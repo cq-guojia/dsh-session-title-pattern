@@ -14,15 +14,17 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 import { LOG } from '../log';
 import type { PluginConfig } from '../settings-card';
 
-/** 隐藏相关的两个字段，全部落在本插件的设置命名空间里。 */
+/** 隐藏相关的字段，全部落在本插件的设置命名空间里。 */
 export interface HiddenConfig {
+  /** 总开关：关掉后整套功能不执行（但隐藏列表与开关状态原样保留）。 */
+  readonly enabled: boolean;
   /** 被隐藏的会话 id。 */
   readonly hiddenSessions: readonly string[];
   /** 「工作区」区域标题行那只眼睛：是否把被隐藏的会话显示出来。 */
   readonly revealHiddenAll: boolean;
 }
 
-const EMPTY: HiddenConfig = { hiddenSessions: [], revealHiddenAll: false };
+const EMPTY: HiddenConfig = { enabled: true, hiddenSessions: [], revealHiddenAll: false };
 
 /** 写回设置文档前的去抖窗口：连点眼睛只落一次写。 */
 const WRITE_DEBOUNCE_MS = 300;
@@ -56,6 +58,8 @@ function readStringArray(value: unknown): string[] {
 function parse(config: PluginConfig | undefined): HiddenConfig {
   if (config === undefined) return EMPTY;
   return {
+    // 取不到就算打开（与 schema 默认值一致）：总开关的默认态是「功能可用」。
+    enabled: config.hiddenEnabled !== false,
     hiddenSessions: readStringArray(config.hiddenSessions),
     revealHiddenAll: config.revealHiddenAll === true,
   };
@@ -127,6 +131,8 @@ class Store implements HiddenConfigStore {
       this.local = incoming;
     } else {
       this.local = {
+        // 总开关不由这一层写（设置卡片的开关直接写文档），所以永远照单全收。
+        enabled: incoming.enabled,
         hiddenSessions: this.dirty.has('hiddenSessions') ? this.local.hiddenSessions : incoming.hiddenSessions,
         revealHiddenAll: this.dirty.has('revealHiddenAll')
           ? this.local.revealHiddenAll

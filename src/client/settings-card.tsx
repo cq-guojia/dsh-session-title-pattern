@@ -29,6 +29,8 @@ export interface PluginConfig {
   maxOutputTokens?: number;
   template?: string;
   maxBytes?: number;
+  /** 总开关：关掉后左侧整套「隐藏会话」功能停止执行（已设过的隐藏列表保留）。 */
+  hiddenEnabled?: boolean;
   /** 被用户隐藏的会话 id（本插件私有的显示层开关，与平台「归档」无关）。 */
   hiddenSessions?: string[];
   /** 「工作区」区域标题行那只眼睛的总开关：是否把被隐藏的会话显示出来。 */
@@ -49,6 +51,7 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   timeoutMs: 30_000,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
+  hiddenEnabled: true,
   hiddenSessions: [],
   revealHiddenAll: false,
 };
@@ -149,6 +152,17 @@ const modeField: FieldSpec = {
   parse: (text) => ({ kind: 'set', value: text === 'rules' ? 'rules' : 'llm' }),
 };
 
+/**
+ * 布尔字段。
+ *
+ * 和 `modeField` 一样用字符串草稿承载真值（`'true'` / `'false'`）：卡片那套
+ * 「暂存 → 比对 → 保存」全按文本走，多一套类型只会多一处要同步的地方。
+ */
+const boolField: FieldSpec = {
+  format: (value) => (value === false ? 'false' : 'true'),
+  parse: (text) => ({ kind: 'set', value: text !== 'false' }),
+};
+
 interface FieldDesc {
   field: keyof PluginConfig & string;
   label: string;
@@ -156,10 +170,12 @@ interface FieldDesc {
   spec: FieldSpec;
   /** 只在 LLM 模式有意义；关掉「用模型总结标题」后整行隐藏。 */
   modelOnly?: boolean;
+  /** 有它就渲染成开关行（`renderToggle`），并给出「开 / 关」各自对应的草稿文本。 */
+  toggle?: { on: string; off: string };
 }
 
 /**
- * 卡片暴露的 8 项。全部一次展开，不再做二级折叠 —— 一共没几个输入项。
+ * 卡片暴露的可编辑项。全部一次展开，不再做二级折叠 —— 一共没几个输入项。
  *
  * `maxInputBytes`（滚动摘要的字节预算）刻意不放出来：它是内部预算，
  * 调整它只会影响成本，需要时走 `cordis.patch.yml`。
@@ -170,6 +186,7 @@ const FIELDS: readonly FieldDesc[] = [
     label: '用模型总结标题',
     hint: '关闭后回到关键词规则分类，不再消耗 token',
     spec: modeField,
+    toggle: { on: 'llm', off: 'rules' },
   },
   {
     field: 'retitleEvery',
@@ -202,6 +219,21 @@ const FIELDS: readonly FieldDesc[] = [
     label: '标题长度上限',
     hint: '单位字节，必须 ≤ session-title 的 maxTitleBytes（dsh-base 默认 80）',
     spec: numberField,
+  },
+  // 隐藏会话的总开关。放在最后、紧挨着下面的「隐藏的会话」自救块 —— 一个功能的
+  // 开关、状态与重置放在一起读起来才顺。
+  {
+    field: 'hiddenEnabled',
+    label: '启用隐藏会话',
+    hint:
+      '打开后：侧边栏每条会话行悬停时，「…」左边会出现一只眼睛，点它就把这条会话隐藏起来' +
+      '（默认不再显示，随时可以再显示回来）；「工作区」那一行放大镜左边的眼睛是一键' +
+      '显示 / 收起所有被隐藏的会话。隐藏只影响侧边栏显不显示 —— 会话本身、搜索与标题' +
+      '自动生成都不受影响，也不会删掉任何东西。' +
+      '关掉这里，左侧这一整套按钮与隐藏效果全部停止执行；' +
+      '你设过的隐藏列表会原样保留，以后再打开还是那些会话被隐藏着。',
+    spec: boolField,
+    toggle: { on: 'true', off: 'false' },
   },
 ];
 
@@ -744,25 +776,29 @@ export function SettingsCard({
   };
 
   /** 开关字段：标题与说明在左，开关在右（对齐官方 MCP / Subagent 卡片的开关行）。 */
-  const renderToggle = (desc: FieldDesc, notice?: string): React.JSX.Element => (
-    <div key={desc.field} className="stp-field">
-      <div className="stp-toggleRow">
-        <div className="stp-toggleLabel">
-          <span className="stp-toggleTitle">{desc.label}</span>
-          {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
+  const renderToggle = (desc: FieldDesc, notice?: string): React.JSX.Element => {
+    // 开关的真值是布尔，而卡片全程按文本走 —— 两个端点由 `desc.toggle` 给出。
+    const { on, off } = desc.toggle ?? { on: 'llm', off: 'rules' };
+    return (
+      <div key={desc.field} className="stp-field">
+        <div className="stp-toggleRow">
+          <div className="stp-toggleLabel">
+            <span className="stp-toggleTitle">{desc.label}</span>
+            {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
+          </div>
+          {isOverridden(desc) ? <span className="stp-overridden">自定义</span> : null}
+          <Switch
+            checked={draftText(desc) === on}
+            disabled={!writable}
+            label={desc.label}
+            onChange={(next) => stage(desc.field, next ? on : off)}
+          />
         </div>
-        {isOverridden(desc) ? <span className="stp-overridden">自定义</span> : null}
-        <Switch
-          checked={draftText(desc) !== 'rules'}
-          disabled={!writable}
-          label={desc.label}
-          onChange={(next) => stage(desc.field, next ? 'llm' : 'rules')}
-        />
+        {/* 关掉模型总结后，把「接下来会怎样」直接写在开关下面。 */}
+        {notice === undefined ? null : <p className="stp-hint">{notice}</p>}
       </div>
-      {/* 关掉模型总结后，把「接下来会怎样」直接写在开关下面。 */}
-      {notice === undefined ? null : <p className="stp-hint">{notice}</p>}
-    </div>
-  );
+    );
+  };
 
   const renderField = (desc: FieldDesc): React.JSX.Element => {
     const overridden = isOverridden(desc);
@@ -873,11 +909,12 @@ export function SettingsCard({
               )}
           {visibleFields
             .filter((desc) => desc.field !== 'mode')
-            .map((desc) =>
-              desc.field === 'provider' && modelDesc !== undefined
+            .map((desc) => {
+              if (desc.toggle !== undefined) return renderToggle(desc);
+              return desc.field === 'provider' && modelDesc !== undefined
                 ? renderModelPair(desc, modelDesc)
-                : renderField(desc),
-            )}
+                : renderField(desc);
+            })}
           {renderRescue()}
           <div className="stp-footer">
             {failed ? (

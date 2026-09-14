@@ -176,10 +176,19 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
   };
 
   function decorate(): void {
+    const config = store.read();
+
+    // 总开关关掉：整套功能**不执行**。先把已经落到 DOM 上的痕迹撤掉（注入的眼睛、
+    // 行上的 display / opacity、被我们动过的搜索槽外边距），否则关掉之后界面还停在
+    // 上一个状态。隐藏列表与显示开关**一个字都不动** —— 重新打开时原样恢复。
+    if (!config.enabled) {
+      clearDecorations();
+      return;
+    }
+
     const root = findSidebarRegion();
     if (root === undefined) return;
 
-    const config = store.read();
     const hidden = new Set(config.hiddenSessions);
     const current = services.sessions?.list.getSnapshot().current;
     const stats: RowStats = { total: 0, resolved: 0 };
@@ -227,20 +236,20 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
       stopWatch();
       stopTips();
       scheduler.cancel();
-      teardown();
+      clearDecorations();
       removeStyle(HIDDEN_STYLE_ID);
       store.dispose();
     };
   });
 
   /**
-   * 拔掉本插件往上游 DOM 上留下的所有痕迹。
+   * 拔掉本插件往上游 DOM 上留下的所有痕迹：注入的按钮、写过的行内样式、以及我们为了
+   * 对齐位置而改掉的搜索槽 `margin-left`（少了最后一项，搜索框会停在错的位置上）。
    *
-   * 只在插件被卸载时跑（正常使用不会走到），但必须做全：注入的按钮、写过的行内
-   * 样式、以及我们为了对齐位置而改掉的搜索槽 `margin-left` —— 少了最后一项，
-   * 搜索框会停在错的位置上。
+   * 两个调用点：插件卸载时（正常使用走不到），以及总开关被关掉时。
+   * 幂等且廉价 —— 没有痕迹时是一趟空查询，值没变也不写 DOM。
    */
-  function teardown(): void {
+  function clearDecorations(): void {
     for (const eye of Array.from(document.querySelectorAll<HTMLElement>(`[${EYE_ATTR}]`))) {
       eye.remove();
     }
@@ -248,6 +257,6 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
       for (const row of findAll(document, suffix)) setRowVisibility(row, 'normal');
     }
     const slot = document.querySelector<HTMLElement>(bySuffix('searchSlot'));
-    if (slot !== null) slot.style.marginLeft = '';
+    if (slot !== null && slot.style.marginLeft !== '') slot.style.marginLeft = '';
   }
 }

@@ -117,6 +117,14 @@ export interface Config {
   /** 单次模型调用输入字节上限（滚动摘要的硬预算）。 */
   maxInputBytes: number;
   /**
+   * 「隐藏会话」的总开关，默认打开。
+   *
+   * 关掉后客户端**整套隐藏功能都不执行**（不注入眼睛、不改任何行的显示），
+   * 但 `hiddenSessions` / `revealHiddenAll` **原样保留** —— 重新打开时还是原来那批
+   * 会话被隐藏着。关掉不是「重置」，只是一段时间内不执行。
+   */
+  hiddenEnabled: boolean;
+  /**
    * 被用户隐藏的会话 id（插件私有，与平台的「归档」无关）。
    *
    * 只影响客户端要不要显示这一行，**不动会话本身**：会话仍在会话列表数据里，
@@ -167,6 +175,7 @@ export const Config: z<Config> = z.object({
   maxOutputTokens: z.number().step(1).min(1).default(512),
   maxInputBytes: z.number().step(1).min(1).default(4096),
   // 隐藏会话：插件私有的显示层开关，与平台「归档」无关（归档是 host 权威且单向的）。
+  hiddenEnabled: z.boolean().default(true),
   hiddenSessions: z.array(z.string()).default([]),
   revealHiddenAll: z.boolean().default(false),
 });
