@@ -152,8 +152,8 @@ For scripted or bulk deployments:
 | `retitleEvery` | number | `10` | How many human messages between title recomputes; minimum `0`; `0` = compute once when the session is created |
 | `provider` | string | empty | Model provider; **must be paired with `model`**; empty follows the session's main model |
 | `model` | string | empty | Model id; **must be paired with `provider`** |
-| `timeoutMs` | number | `30000` | Timeout for one model call (ms) |
-| `maxOutputTokens` | number | `512` | Output token fuse. Not shown in the UI; reach for it here when needed |
+| `timeoutMs` | number | `90000` | Timeout for one model call (ms) |
+| `maxOutputTokens` | number | `2048` | Output token fuse; reasoning counts against it too. Not shown in the UI; reach for it here when needed |
 | `maxInputBytes` | number | `4096` | Input byte cap for one call |
 | `template` | string | `{MMDD}｜{type}｜{topic}` | Title format template |
 | `maxBytes` | number | `80` | Total title length cap (UTF-8 bytes), minimum 20 |

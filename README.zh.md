@@ -178,8 +178,8 @@ dsh 只有「归档」一种收起会话的方式，而且是单向的：收起�
 | `retitleEvery` | number | `10` | 每多少条人类消息重算一次标题，最小 `0`；`0` = 只在新建会话时算一次 |
 | `provider` | string | 空 | 指定模型 provider，**必须与 `model` 成对**；留空则跟随会话主模型 |
 | `model` | string | 空 | 指定模型 id，**必须与 `provider` 成对** |
-| `timeoutMs` | number | `30000` | 单次模型调用超时（毫秒） |
-| `maxOutputTokens` | number | `512` | 输出 token 上限的保险丝。界面上不出现，需要时走这里 |
+| `timeoutMs` | number | `90000` | 单次模型调用超时（毫秒） |
+| `maxOutputTokens` | number | `2048` | 输出 token 上限的保险丝，推理（思考）同样计入。界面上不出现，需要时走这里 |
 | `maxInputBytes` | number | `4096` | 单次调用输入字节上限 |
 | `template` | string | `{MMDD}｜{type}｜{topic}` | 标题格式模板 |
 | `maxBytes` | number | `80` | 标题总长度上限（UTF-8 字节），最小 20 |

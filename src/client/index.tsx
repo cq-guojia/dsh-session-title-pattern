@@ -96,6 +96,37 @@ const CRUMB_STYLE_ID = 'dsh-session-title-pattern-crumb-width';
  */
 const CRUMB_MAX_WIDTH = 'min(640px, 60vw)';
 
+/**
+ * 锁定态的会话级缓存。
+ *
+ * 打开面板就会执行一次 `/title-state`，而命令通道**必然**在会话记录里落两条事件
+ * （`command/run` / `command/done`；`recordInput: false` 只是不记输入，命令名与结果
+ * 一定落）—— 于是每开一次面板，对话末尾就多一行 "unlocked" / "locked"，纯属噪音。
+ *
+ * 而**同一页面里，锁定态只会被本面板自己改变**（rename / lock / unlock，见下面
+ * inject 工厂里的缓存回写），所以每个会话只查一次、之后读缓存：刷新页面缓存清空，
+ * 会重查一次；跨标签页或手敲命令改动的场景拿不到，那时开关位置可能是旧的，
+ * 拨一下即纠正。
+ */
+const LOCK_STATE_CACHE = new Map<string, boolean>();
+/** 缓存上限：长开的页面里会话可能很多，别让它无界生长。 */
+const LOCK_STATE_CACHE_MAX = 200;
+
+function readCachedLockState(sessionId: string): boolean | undefined {
+  return LOCK_STATE_CACHE.get(sessionId);
+}
+
+function writeCachedLockState(sessionId: string, locked: boolean): void {
+  // 删了再插，让 Map 的插入序 = 最近使用序，淘汰时丢最旧的。
+  LOCK_STATE_CACHE.delete(sessionId);
+  LOCK_STATE_CACHE.set(sessionId, locked);
+  while (LOCK_STATE_CACHE.size > LOCK_STATE_CACHE_MAX) {
+    const oldest = LOCK_STATE_CACHE.keys().next();
+    if (oldest.done === true) break;
+    LOCK_STATE_CACHE.delete(oldest.value);
+  }
+}
+
 type RemoteCommands = Context['remote']['commands'];
 
 // 刻意不导出 inject。
@@ -522,10 +553,33 @@ export function apply(ctx: Context): void {
           // 解析出的 sessionId。
           inject: (sessionId) => ({
             suggest: () => runLine(sessionId, SUGGEST_LINE),
-            rename: (title: string) => void runLine(sessionId, `${RENAME_LINE} ${title}`),
-            lock: () => void runLine(sessionId, LOCK_LINE),
-            unlock: () => void runLine(sessionId, UNLOCK_LINE),
-            readState: () => runLine(sessionId, STATE_LINE),
+            rename: (title: string) => {
+              // rename 写入即锁定（平台语义），缓存同步更新，下次开面板不再查询。
+              writeCachedLockState(sessionId, true);
+              void runLine(sessionId, `${RENAME_LINE} ${title}`);
+            },
+            lock: () => {
+              writeCachedLockState(sessionId, true);
+              void runLine(sessionId, LOCK_LINE);
+            },
+            unlock: () => {
+              writeCachedLockState(sessionId, false);
+              void runLine(sessionId, UNLOCK_LINE);
+            },
+            readState: () => {
+              // 有缓存就不发命令：`/title-state` 会往会话记录里写一条结果，
+              // 每次开面板都来一条纯属噪音。
+              const cached = readCachedLockState(sessionId);
+              if (cached !== undefined) {
+                return Promise.resolve(cached ? 'locked' : 'unlocked');
+              }
+              return runLine(sessionId, STATE_LINE).then((text) => {
+                if (typeof text === 'string') {
+                  writeCachedLockState(sessionId, text.trim() === 'locked');
+                }
+                return text;
+              });
+            },
             checkCommands: () => checkCommands(sessionId),
           }),
         },

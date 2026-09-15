@@ -156,13 +156,15 @@ export const Config: z<Config> = z.object({
   retitleEvery: z.number().step(1).min(0).default(10),
   provider: z.string().default(''),
   model: z.string().default(''),
-  // 30s 而不是 15s：手动重算会重置滚动状态、基于整段对话重来，再叠加免费档
-  // 可能正在为主会话排队，15s 实测不够用（TimeoutReason: SESSION_TITLE_TIMEOUT）。
-  timeoutMs: z.number().step(1).min(1).default(30_000),
-  // 512：这一层是「保险丝」，不是给用户调的旋钮 —— 它是服务端的硬切断，到点就停；
-  // 太小会让带推理（thinking）的模型还没写标题就被断掉（实测报过 max-tokens）。
-  // 调大不花钱（上限不是预扣费，模型真写了才计费），因此界面上不暴露这一项。
-  maxOutputTokens: z.number().step(1).min(1).default(512),
+  // 90s：推理（thinking）模型的思考计入同一次调用，想完才写标题，本身就可能要
+  // 几十秒，再叠加免费档为主会话排队 —— 30s 实测会在「模型其实算得出来」的会话上
+  // 超时（TimeoutReason: SESSION_TITLE_TIMEOUT after 30000ms）。
+  timeoutMs: z.number().step(1).min(1).default(90_000),
+  // 2048：这一层是「保险丝」，不是给用户调的旋钮 —— 它是服务端的硬切断，到点就停。
+  // 思考（reasoning）计入同一个预算：512 对推理模型几乎必然不够，想完就一行可见
+  // 文本都没有（实测报过 Title model produced no text）。调大不花钱（上限不是
+  // 预扣费，模型真写了才计费），因此界面上不暴露这一项。
+  maxOutputTokens: z.number().step(1).min(1).default(2048),
   maxInputBytes: z.number().step(1).min(1).default(4096),
   // 隐藏会话：插件私有的显示层开关，与平台「归档」无关（归档是 host 权威且单向的）。
   hiddenEnabled: z.boolean().default(true),

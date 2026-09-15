@@ -49,7 +49,7 @@ const FALLBACK_DEFAULTS: Record<string, unknown> = {
   retitleEvery: 10,
   provider: '',
   model: '',
-  timeoutMs: 30_000,
+  timeoutMs: 90_000,
   template: '{MMDD}｜{type}｜{topic}',
   maxBytes: 80,
   hiddenEnabled: true,
