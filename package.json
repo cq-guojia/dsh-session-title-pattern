@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-title-pattern",
-  "description": "自动管理 dsh 会话标题，统一成「日期｜类型｜主题」的格式：类型与主题由模型对整段对话总结。",
-  "version": "0.7.1",
+  "description": "Automatically manage dsh session titles in a date｜type｜topic format: a model summarizes the type and topic of the whole conversation.",
+  "version": "0.7.2",
   "keywords": [
     "deepseek",
     "harness",
@@ -34,6 +34,7 @@
     "cordis.patch.yml",
     "screenshots.json",
     "README.md",
+    "README.zh.md",
     "LICENSE"
   ],
   "scripts": {
@@ -49,6 +50,7 @@
     },
     "client": {
       "inject": [
+        "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-renderer",
@@ -76,6 +78,7 @@
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-api-remotes": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-api-session-controller": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-store": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.2",

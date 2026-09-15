@@ -14,15 +14,9 @@ import type {} from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-settings';
 
-import { callTitleModel, parseTitleOutput, toSummary } from './llm';
-import type { LlmService } from './llm';
-import {
-  DEFAULT_TITLE_TEMPLATE,
-  FALLBACK_TYPE,
-  buildRuleTitle,
-  classifyMessage,
-  composeTitle,
-} from './rules';
+import { callTitleModel, detectMessageLang, parseTitleOutput, toSummary } from './llm';
+import type { LlmService, TypeLang } from './llm';
+import { DEFAULT_TITLE_TEMPLATE, buildFallbackTitle, composeTitle } from './rules';
 import { foldSessionTitle, normalizeSessionTitle } from '@deepseek-ai/dsh-session-title';
 
 export const name = 'dsh-session-title-pattern';
@@ -97,8 +91,6 @@ export interface Config {
    * 否则服务在写入前会二次截断，超出部分被静默丢弃。
    */
   maxBytes: number;
-  /** `llm` 用模型总结类型与主题；`rules` 回到零 token 的关键词规则。 */
-  mode: 'llm' | 'rules';
   /**
    * 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。
    *
@@ -148,7 +140,6 @@ export interface Config {
  */
 function titleStateSignature(config: Config): string {
   return [
-    config.mode,
     config.retitleEvery,
     config.provider,
     config.model,
@@ -161,7 +152,6 @@ function titleStateSignature(config: Config): string {
 export const Config: z<Config> = z.object({
   template: z.string().default(DEFAULT_TITLE_TEMPLATE),
   maxBytes: z.number().step(1).min(20).default(80),
-  mode: z.union([z.const('llm'), z.const('rules')]).default('llm'),
   // min(0)：0 = 不自动重算，只在首条消息时生成一次。
   retitleEvery: z.number().step(1).min(0).default(10),
   provider: z.string().default(''),
@@ -197,6 +187,13 @@ interface SessionState {
   count: number;
   /** 是否已从会话日志恢复过一次（进程重启后内存态归零，首次用到时恢复）。 */
   restored: boolean;
+  /**
+   * 上一次生成时用的类型语言。
+   *
+   * 用户换过语言环境后，`summary` 里那个类型是另一种语言，继续喂给模型会把新语言带偏，
+   * 所以要能察觉并清掉它（主线是句子、跟对话语言走，不动）。
+   */
+  lang?: TypeLang;
 }
 
 /** 写入并按插入顺序淘汰最旧的一条，避免长期运行内存无界。 */
@@ -267,6 +264,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     private readonly states: Map<string, SessionState>,
     /** 延迟注入的 llm 服务；未就绪时返回 undefined。 */
     private readonly getLlm: () => LlmService | undefined,
+    /** 本次该用哪种语言的类型标签（语言环境优先，拿不到才看对话语言）。 */
+    private readonly resolveTypeLang: (messages: readonly SessionTitleUserMessage[]) => TypeLang,
     ) {}
 
     /**
@@ -314,10 +313,6 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     // 每次调用都读当前生效的配置，而不是构造时冻结的那份。
     const config = this.getConfig();
 
-    if (config.mode !== 'llm') {
-      return { title: buildRuleTitle(request.messages, config), messageSeqs };
-    }
-
     const state = this.stateOf(request.session.id);
     // 进程重启后内存态归零：从会话日志把上一次的标题找回来当锚。
     // 标题是「日期｜类型｜主题」，去掉日期段就是上次的 类型|主题；主题同时兼任主线 ——
@@ -336,28 +331,37 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       }
     }
 
+    // 类型语言：**用户的语言环境**优先（中文环境下即便对话是英文，类型也用中文）；
+    // 读不到语言环境才退回按对话语言判断。
+    const typeLang = this.resolveTypeLang(request.messages);
+    if (state.lang !== undefined && state.lang !== typeLang) {
+      // 语言环境换过：摘要里那个类型是另一种语言，清掉，别让它把这一轮的类型语言带偏
+      // （主线是句子、跟对话语言走，保留）。
+      state.summary = '';
+    }
+    state.lang = typeLang;
+
     try {
       const llm = this.getLlm();
       if (llm === undefined) {
         throw new Error(
-          'llm 服务尚未就绪：当前组合里没有可用的 @deepseek-ai/dsh-llm，' +
-            '请安装它，或把本插件的 mode 设为 rules',
+          'The llm service is not ready: this composition has no usable @deepseek-ai/dsh-llm',
         );
       }
       const startedAt = Date.now();
-      const { text, route, inputBytes, truncated } = await callTitleModel(llm, name, config, request, state);
+      const { text, route, inputBytes, truncated } = await callTitleModel(
+        llm,
+        name,
+        config,
+        request,
+        state,
+        typeLang,
+      );
 
-      const parsed = parseTitleOutput(text);
-      const first = request.messages[0];
-      // 模型没按 `类型|主题` 输出时，类型回退到规则分类，主题照用，
-      // 不因为格式问题让整次生成失败。
-      const type =
-        parsed.type.length > 0
-          ? parsed.type
-          : first !== undefined
-            ? classifyMessage(first)
-            : FALLBACK_TYPE;
-      const title = composeTitle(new Date(), type, parsed.topic, config);
+      const parsed = parseTitleOutput(text, typeLang);
+      // 模型没按 `类型|主题` 输出时**直接省略类型**：模板里 `{type}` 整段消失、
+      // 相邻分隔符一并收掉，主题照用 —— 不因为格式问题让整次生成失败。
+      const title = composeTitle(new Date(), parsed.type, parsed.topic, config);
 
       // 主线：模型给了就更新（它自己判断主线有没有变）；没给就沿用上一次的。
       state.mainLine = parsed.mainLine.length > 0 ? parsed.mainLine : state.mainLine;
@@ -367,29 +371,48 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       // 可观测性：每次真调模型都留一条。出问题时一眼能看出走了哪条路由、
       // 发了多少字节、花了多久 —— 之前正常调用是完全静默的，排查只能靠猜。
       this.ctx.logger(name).info(
-        `标题已生成（第 ${request.messages.length} 条消息，${route.provider}/${route.model}，` +
-          `输入 ${inputBytes} 字节，耗时 ${Date.now() - startedAt}ms）：${title}` +
-          `；主线：${state.mainLine || '（空）'}`,
+        `Title generated (message #${request.messages.length}, ${route.provider}/${route.model}, ` +
+          `${inputBytes} bytes in, ${Date.now() - startedAt}ms): ${title}` +
+          `; main line: ${state.mainLine || '(empty)'}`,
       );
       if (truncated) {
         this.ctx.logger(name).warn(
-          `标题模型触达输出上限（maxOutputTokens=${config.maxOutputTokens}）被截断，已改用首行；` +
-            '经常出现的话把这个值调大，或换成不带推理的模型',
+          `Title model hit the output limit (maxOutputTokens=${config.maxOutputTokens}); ` +
+            'using the first line instead. Raise it or switch to a non-reasoning model if this repeats.',
         );
       }
       return { title, messageSeqs, model: route };
     } catch (error) {
-      // 降级：**不覆盖已有标题**。服务的 runProvider 只在 provider 成功返回后才
-      // append 新的 session/title 修订，抛错即可让它保留上一次的标题
-      // （首轮失败则没有标题，服务会写入内置 fallback）。
-      //
       // 轮次仍然推进：否则失败后每一轮都会重试同一个调用，反而更费 token。
       // 跳过的这几轮会在下一次重算时作为「新增消息」一并补上。
       state.seenCount = request.messages.length;
+
+      // **已有标题 → 抛错，保留上一次标题**：服务的 runProvider 只在 provider 成功
+      // 返回后才 append 新的 session/title 修订，抛错就是它保留旧标题的机制。
+      const current = this.ctx.sessionTitle.get(request.session);
+      if (current !== undefined && current.title.length > 0) {
+        this.ctx.logger(name).warn(
+          `Title generation failed after message #${request.messages.length}; ` +
+            `keeping the previous title: ${String(error)}`,
+        );
+        throw error;
+      }
+
+      // **还没有标题 → 本地兜底**（日期 + 首条消息正文，省略类型），别让新会话
+      // 停在平台的默认标题上。兜底标题来源仍是 provider，自动更新照常继续。
+      const fallback = buildFallbackTitle(request.messages, config);
+      if (fallback.length === 0) {
+        this.ctx.logger(name).warn(
+          `Title generation failed after message #${request.messages.length} and no local ` +
+            `fallback was possible: ${String(error)}`,
+        );
+        throw error;
+      }
       this.ctx.logger(name).warn(
-        `第 ${request.messages.length} 条消息后生成标题失败，保留上一次标题：${String(error)}`,
+        `Title generation failed after message #${request.messages.length}; using a local ` +
+          `fallback title: ${fallback} (${String(error)})`,
       );
-      throw error;
+      return { title: fallback, messageSeqs };
     }
   }
 }
@@ -405,16 +428,16 @@ function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void 
   ctx.effect(() =>
     ctx.commands.register({
       name: RENAME_COMMAND,
-      description: '手动修改会话标题（写入后自动锁定，停止自动更新）',
+      description: 'Manually set the session title (locks it and stops automatic updates)',
       handler: ({ agent, rawInput }) => {
         const text = normalizeSessionTitle(rawInput.trim(), getConfig().maxBytes);
         // 空输入与超长（会被 maxBytes 截到空）都直接忽略；截断兜底让 rename 不会因长度抛错。
-        if (text.length === 0) return { kind: 'error', text: '标题内容为空，已忽略' };
+        if (text.length === 0) return { kind: 'error', text: 'Title is empty; ignored' };
         try {
           ctx.sessionTitle.rename(agent.session, text);
-          return { kind: 'success', text: '已更新标题并锁定（自动更新停止）' };
+          return { kind: 'success', text: 'Title updated and locked (automatic updates stopped)' };
         } catch (error) {
-          return { kind: 'error', text: `修改标题失败：${String(error)}` };
+          return { kind: 'error', text: `Failed to update title: ${String(error)}` };
         }
       },
     }),
@@ -422,16 +445,16 @@ function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void 
   ctx.effect(() =>
     ctx.commands.register({
       name: LOCK_COMMAND,
-      description: '锁定当前会话标题（停止自动更新）',
+      description: 'Lock the current session title (stops automatic updates)',
       handler: ({ agent }) => {
         const snapshot = ctx.sessionTitle.get(agent.session);
-        if (snapshot === undefined) return { kind: 'error', text: '当前会话还没有标题' };
+        if (snapshot === undefined) return { kind: 'error', text: 'This session has no title yet' };
         try {
           // 把当前标题以「用户修改」的名义写回：内容不变，但进入锁定态。
           ctx.sessionTitle.rename(agent.session, snapshot.title);
-          return { kind: 'success', text: '已锁定标题（自动更新停止）' };
+          return { kind: 'success', text: 'Title locked (automatic updates stopped)' };
         } catch (error) {
-          return { kind: 'error', text: `锁定失败：${String(error)}` };
+          return { kind: 'error', text: `Failed to lock title: ${String(error)}` };
         }
       },
     }),
@@ -473,65 +496,83 @@ function registerPanelCommands(
   options: {
     getConfig: () => Config;
     getLlm: () => LlmService | undefined;
+    /**
+     * 本次该用哪种语言的类型标签。
+     *
+     * 草稿走的是命令通道，拿不到 provider 内部那份「按会话」的状态，所以在这里现算一次。
+     */
+    resolveTypeLang: (messages: readonly SessionTitleUserMessage[]) => TypeLang;
     states: Map<string, SessionState>;
     provider: SessionTitlePatternProvider;
   },
 ): void {
-  const { getConfig, getLlm, states, provider } = options;
+  const { getConfig, getLlm, resolveTypeLang, states, provider } = options;
 
   ctx.effect(() =>
     ctx.commands.register({
       name: SUGGEST_COMMAND,
-      description: '按当前对话算一版标题草稿（只返回文本，不写入会话标题）',
+      description: 'Draft a title from the current conversation (returns text only, never writes it)',
       recordInput: false,
       handler: async ({ agent, signal }) => {
         const config = getConfig();
         const messages = collectHumanMessages(agent.session.snapshotEvents());
         if (messages.length === 0) {
-          return { kind: 'error', text: '会话里还没有可用于起标题的消息' };
+          return { kind: 'error', text: 'This session has no messages usable for a title yet' };
         }
+        // 会话是否已有标题：有 = 用户在改标题，失败就直接报错；没有 = 首次，失败走本地兜底。
+        const current = ctx.sessionTitle.get(agent.session);
+        const hasTitle = current !== undefined && current.title.length > 0;
         try {
           // 路由必须自己补：草稿不走服务的自动调度，没人替我们填 request.route。
-          const route = config.mode === 'llm' ? draftRoute(agent.session, config) : undefined;
-          if (config.mode === 'llm') {
-            const llm = getLlm();
-            if (llm !== undefined && route !== undefined) {
-              // 草稿是**只读**的旁路：滚动状态传浅拷贝，绝不碰真身的
-              // summary / seenCount / mainLine —— 正式重算的增量逻辑不能被预览打扰。
-              const existing = states.get(agent.session.id);
-              const scratch: SessionState = existing
-                ? { ...existing }
-                : { mainLine: '', summary: '', seenCount: 0, count: 0, restored: true };
-              const request: SessionTitleProviderRequest = {
-                session: agent.session,
-                messages,
-                route,
-                signal,
-              };
-              const { text } = await callTitleModel(llm, name, config, request, scratch);
-              const parsed = parseTitleOutput(text);
-              const first = messages[0];
-              const type =
-                parsed.type.length > 0
-                  ? parsed.type
-                  : first !== undefined
-                    ? classifyMessage(first)
-                    : FALLBACK_TYPE;
-              return { kind: 'success', text: composeTitle(new Date(), type, parsed.topic, config) };
-            }
-            if (route === undefined) {
-              // 会话还没有主请求路由（首轮之前），且配置里也没指定 provider/model。
-              // 草稿照出（关键词规则），但留一条：想让它用模型，把那一对填上即可。
-              ctx.logger(name).warn(
-                '自动生成草稿：会话尚未记录主请求路由，本次改用关键词规则。' +
-                  '想让草稿走模型，请在本插件配置里同时指定 provider 与 model',
-              );
-            }
+          const route = draftRoute(agent.session, config);
+          const llm = getLlm();
+          if (route !== undefined && llm !== undefined) {
+            // 草稿是**只读**的旁路：滚动状态传浅拷贝，绝不碰真身的
+            // summary / seenCount / mainLine —— 正式重算的增量逻辑不能被预览打扰。
+            const existing = states.get(agent.session.id);
+            const scratch: SessionState = existing
+              ? { ...existing }
+              : { mainLine: '', summary: '', seenCount: 0, count: 0, restored: true };
+            const request: SessionTitleProviderRequest = {
+              session: agent.session,
+              messages,
+              route,
+              signal,
+            };
+            const typeLang = resolveTypeLang(messages);
+            const { text } = await callTitleModel(llm, name, config, request, scratch, typeLang);
+            const parsed = parseTitleOutput(text, typeLang);
+            return {
+              kind: 'success',
+              text: composeTitle(new Date(), parsed.type, parsed.topic, config),
+            };
           }
-          // rules 模式（或 llm 未就绪 / 没有路由）退到关键词规则，草稿依旧可用。
-          return { kind: 'success', text: buildRuleTitle(messages, config) };
+          if (hasTitle) {
+            // 已有标题 = 用户在改标题：拿不到模型就直接报错，不给他一版假的草稿。
+            ctx.logger(name).warn(
+              'Draft title requested but no usable model route is available for this draft',
+            );
+            return {
+              kind: 'error',
+              text: 'Failed to draft a title: no usable model route (set both provider and model)',
+            };
+          }
+          // 首次（会话还没有标题）：退到本地兜底，按钮永远有反馈。
+          ctx.logger(name).warn(
+            'Draft title: no usable model route; falling back to a local title for a session ' +
+              'that has no title yet',
+          );
+          return { kind: 'success', text: buildFallbackTitle(messages, config) };
         } catch (error) {
-          return { kind: 'error', text: `生成草稿失败：${String(error)}` };
+          if (hasTitle) return { kind: 'error', text: `Failed to draft a title: ${String(error)}` };
+          const fallback = buildFallbackTitle(messages, config);
+          if (fallback.length > 0) {
+            ctx.logger(name).warn(
+              `Draft title model call failed; using a local fallback: ${String(error)}`,
+            );
+            return { kind: 'success', text: fallback };
+          }
+          return { kind: 'error', text: `Failed to draft a title: ${String(error)}` };
         }
       },
     }),
@@ -540,19 +581,19 @@ function registerPanelCommands(
   ctx.effect(() =>
     ctx.commands.register({
       name: UNLOCK_COMMAND,
-      description: '解锁会话标题（恢复自动更新，标题内容保持不变）',
+      description: 'Unlock the session title (resumes automatic updates; title text unchanged)',
       recordInput: false,
       handler: async ({ agent }) => {
         const current = ctx.sessionTitle.get(agent.session);
-        if (current === undefined) return { kind: 'error', text: '当前会话还没有标题' };
+        if (current === undefined) return { kind: 'error', text: 'This session has no title yet' };
         // 平台的解锁唯一切入点是 refresh()，而 refresh 会驱动一次 provider 调用；
         // 先挂号，generate() 看到挂号就原样返回当前标题 —— 文字不变、不调模型。
         provider.requestUnlock(agent.session.id);
         try {
           await ctx.sessionTitle.refresh(agent.session);
-          return { kind: 'success', text: '已解锁：标题恢复自动更新（内容不变）' };
+          return { kind: 'success', text: 'Unlocked: automatic updates resumed (title text unchanged)' };
         } catch (error) {
-          return { kind: 'error', text: `解锁失败：${String(error)}` };
+          return { kind: 'error', text: `Failed to unlock title: ${String(error)}` };
         }
       },
     }),
@@ -561,7 +602,7 @@ function registerPanelCommands(
   ctx.effect(() =>
     ctx.commands.register({
       name: STATE_COMMAND,
-      description: '查询当前会话标题是否处于锁定状态',
+      description: 'Report whether the current session title is locked',
       recordInput: false,
       handler: ({ agent }) => {
         // 「锁没锁」就是标题来源是不是「用户」：rename 写入的标题 source 为 user，
@@ -589,7 +630,7 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
   ctx.effect(() =>
     ctx.commands.register({
       name: RETITLE_COMMAND,
-      description: '根据对话重新生成标题',
+      description: 'Regenerate the session title from the conversation',
       // 命令不接受输入，没必要在会话日志里重复记一条空输入。
       recordInput: false,
       handler: async ({ agent, signal }) => {
@@ -606,11 +647,14 @@ function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>)
         try {
           const snapshot = await ctx.sessionTitle.refresh(agent.session, signal);
           if (snapshot === undefined) {
-            return { kind: 'error', text: '当前会话还没有可用于生成标题的消息' };
+            return {
+              kind: 'error',
+              text: 'This session has no messages usable for generating a title',
+            };
           }
           return { kind: 'success', text: snapshot.title };
         } catch (error) {
-          return { kind: 'error', text: `生成标题失败：${String(error)}` };
+          return { kind: 'error', text: `Failed to generate title: ${String(error)}` };
         }
       },
     }),
@@ -633,9 +677,8 @@ function trackRecomputes(
   states: Map<string, SessionState>,
 ): void {
   ctx.on('session/event', (session, event) => {
-    // 模式每次现读：用户可以在设置里随时切回 rules，订阅不能只在 apply 时判断一次。
     const config = getConfig();
-    if (config.mode !== 'llm' || !isEligibleUserMessage(event)) return;
+    if (!isEligibleUserMessage(event)) return;
     // 只处理顶层会话。fork 出的子会话（子代理）沿用服务的既有行为：不做自动命名、
     // 也不参与重算 —— 否则每次 fork 都要多付一次模型调用。
     if (session.header.parentSession !== undefined) return;
@@ -653,7 +696,7 @@ function trackRecomputes(
     if (ctx.sessionTitle.get(session)?.source.kind === 'user') return;
 
     ctx.logger(name).info(
-      `第 ${state.count} 条消息，触发一次标题重算（每 ${config.retitleEvery} 条一次）`,
+      `Message #${state.count}; recomputing the title (every ${config.retitleEvery} messages)`,
     );
 
     // 事件是 fire-and-forget 的通知，不能阻塞它；失败已由 provider 内部记录。
@@ -675,9 +718,9 @@ export function apply(ctx: Context, config: Config): void {
   let source: () => Config = () => config;
   const currentConfig = (): Config => source();
 
-  // llm 绝不能写进 inject 声明：`mode: rules` 时我们根本不需要它，而声明式依赖
-  // 会让本 entry 在缺少该服务的组合里一直 pending。用 ctx.inject 延迟等待：
-  // 拿不到就只是「LLM 模式不可用」，rules 模式照常工作。
+  // llm 绝不能写进 inject 声明：声明式依赖会让本 entry 在缺少该服务的组合里
+  // 一直 pending，而 pending 的 entry 会让整个 dsh 启动失败。用 ctx.inject 延迟等待：
+  // 拿不到就只是「模型不可用」，走「保留上一次标题 / 无标题时本地兜底」的降级。
   //
   // 也不能直接写 `ctx.llm` —— cordis 的 Context 是受保护的代理，未声明的服务
   // 属性一访问就抛 `cannot get property "llm" without inject`。
@@ -686,7 +729,43 @@ export function apply(ctx: Context, config: Config): void {
     llm = llmCtx.llm;
   });
 
-  const provider = new SessionTitlePatternProvider(ctx, currentConfig, states, () => llm);
+  /**
+   * 用户的语言环境（设置里的语言）。
+   *
+   * host 侧**没有** locale 服务，但 locale 插件把偏好存进了设置文档的 `locale` 命名空间
+   * （字段 `preference`），而 `ctx.settings.get()` 是公开读取面 —— 所以这里读得到。
+   * 同样走延迟注入，不能直接写 `ctx.settings`（受保护代理会抛）。
+   */
+  let settings: Context['settings'] | undefined;
+
+  /**
+   * 取用户选的语言环境；读不到返回 undefined。
+   *
+   * 读不到有两种情况：用户从没显式选过语言（那时真实语言由浏览器推导，host 看不到），
+   * 或这份组合里根本没注册 `locale` 命名空间。都由调用方退回「按对话语言判断」。
+   */
+  const getUiLocale = (): TypeLang | undefined => {
+    try {
+      const section = settings?.get('locale') as { preference?: unknown } | undefined;
+      const preference = section?.preference;
+      return preference === 'zh' || preference === 'en' ? preference : undefined;
+    } catch {
+      // 读不到不该拖垮标题生成（命名空间没注册 / 文档形状意外），退回对话语言。
+      return undefined;
+    }
+  };
+
+  /** 类型标签该用哪种语言：语言环境优先，拿不到才看对话语言。 */
+  const resolveTypeLang = (messages: readonly SessionTitleUserMessage[]): TypeLang =>
+    getUiLocale() ?? detectMessageLang(messages);
+
+  const provider = new SessionTitlePatternProvider(
+    ctx,
+    currentConfig,
+    states,
+    () => llm,
+    resolveTypeLang,
+  );
 
   // SessionTitleService.register() 是全局单例，重复注册直接抛。
   // 正常情况下我们的 bundle patch 会禁用 dsh-base 的 session-title-llm，
@@ -697,9 +776,9 @@ export function apply(ctx: Context, config: Config): void {
     dispose = ctx.sessionTitle.register(provider);
   } catch (error) {
     logger.warn(
-      '注册标题 provider 失败，会话标题将回退到内置规则。' +
-        '多半是另一个 provider（如 dsh-base 的 session-title-llm）已抢先注册，' +
-        `而 SessionTitleService 全局只允许一个：${String(error)}`,
+      'Failed to register the title provider; session titles fall back to the built-in rule. ' +
+        'Another provider (e.g. dsh-base session-title-llm) most likely registered first, ' +
+        `and SessionTitleService allows only one globally: ${String(error)}`,
     );
     return;
   }
@@ -714,6 +793,7 @@ export function apply(ctx: Context, config: Config): void {
   let lastTitleSignature = titleStateSignature(config);
 
   ctx.inject(['settings'], (settingsCtx) => {
+    settings = settingsCtx.settings;
     settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, config, {
       setSource: (current) => {
         source = current;
@@ -731,15 +811,15 @@ export function apply(ctx: Context, config: Config): void {
           states.clear();
         }
         logger.info(
-          `设置已更新：mode=${next.mode}、retitleEvery=${next.retitleEvery}、` +
-            `隐藏 ${next.hiddenSessions.length} 条`,
+          `Settings updated: retitleEvery=${next.retitleEvery}, ` +
+            `hidden ${next.hiddenSessions.length}`,
         );
       },
       validate: (value) => {
         // schema 表达不了的跨字段约束：provider 与 model 必须成对。
         // 抛错会拒绝这次写入，用户在设置页立刻收到失败提示。
         if ((value.provider.length > 0) !== (value.model.length > 0)) {
-          throw new Error('provider 与 model 必须同时填写，或同时留空');
+          throw new Error('provider and model must be set together, or both left empty');
         }
       },
     });
@@ -749,8 +829,9 @@ export function apply(ctx: Context, config: Config): void {
   const initial = currentConfig();
   if ((initial.provider.length > 0) !== (initial.model.length > 0)) {
     logger.warn(
-      `provider / model 必须成对配置，当前 provider=${JSON.stringify(initial.provider)}、` +
-        `model=${JSON.stringify(initial.model)}，将忽略这两项并跟随会话主模型。`,
+      `provider / model must be configured as a pair; currently provider=` +
+        `${JSON.stringify(initial.provider)}, model=${JSON.stringify(initial.model)}. ` +
+        'Both are ignored and the session main model is followed instead.',
     );
   }
 
@@ -771,6 +852,7 @@ export function apply(ctx: Context, config: Config): void {
     registerPanelCommands(commandCtx, {
       getConfig: currentConfig,
       getLlm: () => llm,
+      resolveTypeLang,
       states,
       provider,
     });

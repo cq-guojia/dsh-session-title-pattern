@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-api-remotes/client';
 // ctx.slots 服务的类型增强在 renderer 包里，不在 slots 包里。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 // 官方基础组件与图标。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致 ——
 // 图标集有 49 个 `IconXxx16`，侧边栏开关等内置按钮用的就是同一套。
@@ -22,6 +22,8 @@ import type { CredentialsFace, LlmDirectory, PluginConfig } from './settings-car
 import { SETTINGS_CSS, SETTINGS_STYLE_ID } from './settings-css';
 import { injectStyle, removeStyle } from './hidden/dom';
 import { installHiddenSessions } from './hidden/sidebar';
+import { LOCALE_NS, en, fallbackTranslate, zh } from './locales';
+import type { LocaleTranslate } from './locales';
 import { LOG } from './log';
 
 export const name = 'dsh-session-title-pattern';
@@ -114,18 +116,10 @@ type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   readState: () => Promise<string | undefined>;
   /** 自检：本面板依赖的命令是否都注册了，缺的打进控制台。 */
   checkCommands: () => void;
-};
-
-/**
- * 锁定开关的悬浮提示。
- *
- * 把两边的行为都讲清楚：锁定 = 不再自动更新；解锁 = 恢复自动更新但**不动当前文字**
- * —— 这是刻意的：用户要求「解锁只是改状态，不要立刻重新生成」。
- */
-const LOCK_HINT =
-  '锁定后，标题不会随对话轮数自动更新；解除锁定即恢复自动更新（标题文字保持不变）';
+} & PropsLocale<typeof LOCALE_NS>;
 
 function GenerateTitleAction({
+  t,
   useSession,
   useProjection,
   suggest,
@@ -243,7 +237,7 @@ function GenerateTitleAction({
   return (
     // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，而 Button 不转发 ref。
     <span ref={wrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
-      <Tooltip label="重命名会话" side="bottom" delayMs={500}>
+      <Tooltip label={t('renameTitle')} side="bottom" delayMs={500}>
         <span style={{ display: 'inline-flex' }}>
           <Button
             variant="ghost"
@@ -252,8 +246,8 @@ function GenerateTitleAction({
             disabled={running}
             onClick={() => (open ? close() : openPanel())}
             // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
-            title={running ? '会话回复中，暂不能重命名' : undefined}
-            aria-label="重命名会话"
+            title={running ? t('renameDisabledHint') : undefined}
+            aria-label={t('renameTitle')}
           />
         </span>
       </Tooltip>
@@ -282,12 +276,12 @@ function GenerateTitleAction({
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>
-              重命名会话
+              {t('renameTitle')}
             </span>
             <button
               type="button"
               onClick={close}
-              aria-label="关闭"
+              aria-label={t('closeAria')}
               style={{
                 appearance: 'none', font: 'inherit', cursor: 'pointer', lineHeight: 1,
                 background: 'transparent', border: 'none', fontSize: 16,
@@ -299,7 +293,7 @@ function GenerateTitleAction({
           </div>
           <input
             value={draft}
-            placeholder="输入新的会话标题"
+            placeholder={t('renamePlaceholder')}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') save();
@@ -307,15 +301,17 @@ function GenerateTitleAction({
             style={inputStyle}
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Tooltip label={LOCK_HINT} side="top" delayMs={400}>
+            <Tooltip label={t('lockHint')} side="top" delayMs={400}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Switch checked={locked} label="锁定标题" onChange={() => toggleLock()} />
-                <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>锁定</span>
+                <Switch checked={locked} label={t('lockLabel')} onChange={() => toggleLock()} />
+                <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-secondary)' }}>
+                  {t('lockShort')}
+                </span>
               </span>
             </Tooltip>
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" onClick={close} style={ghostButton(false)}>
-                取消
+                {t('cancel')}
               </button>
               <button
                 type="button"
@@ -323,7 +319,7 @@ function GenerateTitleAction({
                 onClick={generateDraft}
                 style={ghostButton(busy || running)}
               >
-                {busy ? '生成中…' : '自动生成'}
+                {busy ? t('generating') : t('autoGenerate')}
               </button>
               <button
                 type="button"
@@ -336,7 +332,7 @@ function GenerateTitleAction({
                   opacity: draft.trim() === '' || busy ? 0.4 : 1,
                 }}
               >
-                确定保存
+                {t('confirmSave')}
               </button>
             </div>
           </div>
@@ -382,6 +378,22 @@ export function apply(ctx: Context): void {
       removeStyle(SETTINGS_STYLE_ID);
     };
   });
+
+  /**
+   * 界面文案（中英双语）。
+   *
+   * 词典注册与 `bind` 都要等 locale 服务，所以用 `ctx.inject` 延迟等待 ——
+   * 绝不能写进模块级注入声明：组合里缺它会让整个客户端 entry 一直 pending。
+   * 服务就位之前，DOM 层用内置中文词典兜底（`fallbackTranslate`），不会渲染出空串。
+   */
+  let t: LocaleTranslate = fallbackTranslate;
+  ctx.inject(['locale'], (localeCtx) => {
+    const locale = localeCtx.locale;
+    ctx.effect(() => locale.register(LOCALE_NS, { zh, en }));
+    t = locale.bind(LOCALE_NS);
+  });
+  /** DOM 层不在 React 里，每趟 decorate 现取当前翻译函数。 */
+  const getT = (): LocaleTranslate => t;
 
   // remote 命名空间的挂载可能晚于 slot 注册，所以不能提前闭包捕获 ——
   // 提前捕获会拿到 undefined，表现为「按钮在但点了没反应」。
@@ -504,6 +516,8 @@ export function apply(ctx: Context): void {
           name: SLOT,
           id: ENTRY_ID,
           order: ACTION_ORDER,
+          // 声明词典命名空间 → 框架把 t 注入组件，且语言切换时自动重渲。
+          locale: LOCALE_NS,
           // factory 在 apply 世界中运行；session scope 的 slot 会收到框架
           // 解析出的 sessionId。
           inject: (sessionId) => ({
@@ -546,6 +560,7 @@ export function apply(ctx: Context): void {
           name: 'settings.plugin.item',
           // keyed 槽位用 key 声明本条贡献给哪个命名空间（list 才是 id/order）。
           key: SETTINGS_NS,
+          locale: LOCALE_NS,
           inject: () => ({
             scope,
             describe,
@@ -563,6 +578,10 @@ export function apply(ctx: Context): void {
   // 走 settingsScope 绑到与设置卡片**同一个命名空间** —— DOM 层不在 React 里，
   // 用不了卡片那套 props，只能靠这个面读写同一份设置文档。
   ctx.inject(['settingsScope'], (sub) => {
-    installHiddenSessions(sub, sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS }));
+    installHiddenSessions(
+      sub,
+      sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS }),
+      getT,
+    );
   });
 }

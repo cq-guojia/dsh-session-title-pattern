@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSyncExternalStore } from 'react';
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 // 仅为拿到 `settings.plugin.item` 槽位与 settingsScope 的类型声明。
 // 值导入会被客户端 bundle-purity 闸门拒绝，跨插件协作一律走 cordis 服务。
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client';
+
+import { LOCALE_NS } from './locales';
+import type { SessionTitlePatternLocaleKey } from './locales';
 
 /**
  * 设置命名空间，必须与 host 侧 `installSection` 用的一模一样。
@@ -21,7 +24,6 @@ export const SETTINGS_NS = 'session-title-pattern';
  * 所以要按可选字段读。
  */
 export interface PluginConfig {
-  mode?: 'llm' | 'rules';
   retitleEvery?: number;
   provider?: string;
   model?: string;
@@ -44,7 +46,6 @@ export interface PluginConfig {
  * 正常情况下它就是我们要显示给用户的默认值。
  */
 const FALLBACK_DEFAULTS: Record<string, unknown> = {
-  mode: 'llm',
   retitleEvery: 10,
   provider: '',
   model: '',
@@ -147,20 +148,12 @@ const numberField: FieldSpec = {
   },
 };
 
-const modeField: FieldSpec = {
-  format: (value) => (value === 'rules' ? 'rules' : 'llm'),
-  parse: (text) => ({ kind: 'set', value: text === 'rules' ? 'rules' : 'llm' }),
-};
-
 interface FieldDesc {
   field: keyof PluginConfig & string;
-  label: string;
-  hint?: string;
+  /** 词典键：渲染时才 `t()` 取值，语言切换才会跟着变。 */
+  label: SessionTitlePatternLocaleKey;
+  hint?: SessionTitlePatternLocaleKey;
   spec: FieldSpec;
-  /** 只在 LLM 模式有意义；关掉「用模型总结标题」后整行隐藏。 */
-  modelOnly?: boolean;
-  /** 有它就渲染成开关行（`renderToggle`），并给出「开 / 关」各自对应的草稿文本。 */
-  toggle?: { on: string; off: string };
 }
 
 /**
@@ -171,57 +164,35 @@ interface FieldDesc {
  */
 const FIELDS: readonly FieldDesc[] = [
   {
-    field: 'mode',
-    label: '用模型总结标题',
-    hint: '关闭后回到关键词规则分类，不再消耗 token',
-    spec: modeField,
-    toggle: { on: 'llm', off: 'rules' },
-  },
-  {
     field: 'retitleEvery',
-    label: '每隔几条对话重算一次',
-    hint: '0 = 只在新建会话时算一次，之后不自动更新（可随时点标题旁的按钮手动重算）',
+    label: 'retitleEveryLabel',
+    hint: 'retitleEveryHint',
     spec: numberField,
-    modelOnly: true,
   },
   // provider 与 model 仍然各占 FIELDS 里的一项（保存、校验都按项走），
   // 但**渲染时合并成一行两个下拉**，见 renderModelPair()。
-  { field: 'provider', label: '标题总结大模型', spec: textField, modelOnly: true },
-  { field: 'model', label: '具体模型', spec: textField, modelOnly: true },
+  { field: 'provider', label: 'modelPairLabel', spec: textField },
+  // model 不单独出行，它的名字只在「未保存」提示里露一次。
+  { field: 'model', label: 'modelLabel', spec: textField },
   {
     field: 'timeoutMs',
-    label: '超时',
-    hint: '单次模型调用超时（毫秒）。模型慢的时候（比如免费档在排队）就往大调',
+    label: 'timeoutLabel',
+    hint: 'timeoutHint',
     spec: numberField,
-    modelOnly: true,
   },
   {
     field: 'template',
-    label: '标题格式',
-    hint:
-      '占位符：{YYYY} {MM} {DD} {HH} {mm} {ss} {type} {topic}。' +
-      '日期部件可任意拼接（如 {MMDD}、{YYYYMMDD}）；不写 {type} 就没有分类，不写 {topic} 就没有主题',
+    label: 'templateLabel',
+    hint: 'templateHint',
     spec: textField,
   },
   {
     field: 'maxBytes',
-    label: '标题长度上限',
-    hint: '单位字节，必须 ≤ session-title 的 maxTitleBytes（dsh-base 默认 80）',
+    label: 'maxBytesLabel',
+    hint: 'maxBytesHint',
     spec: numberField,
   },
 ];
-
-/**
- * 「启用隐藏会话」的说明。
- *
- * 这个开关**不在 `FIELDS` 里**：它一点即生效（见 `renderHiddenToggle()`），
- * 而 `FIELDS` 那一套是「暂存 → 保存」的字段。
- */
-const HIDDEN_ENABLED_HINT =
-  '启用后，会话行悬停时行尾显示隐藏按钮，可将该会话从侧边栏隐藏；「工作区」标题行放大镜' +
-  '左侧的按钮用于整体显示或收起全部已隐藏的会话。隐藏仅影响侧边栏的呈现，不影响会话内容、' +
-  '搜索与标题生成，也不会删除任何数据。关闭后，上述按钮与隐藏效果均停止执行；已设置的' +
-  '隐藏列表将保留，重新启用时继续生效。';
 
 const ChevronIcon = (
   <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -435,7 +406,7 @@ type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
   getLlm: () => LlmDirectory | undefined;
   /** 延迟注入的凭据域；拿不到就只用用户层判定「配没配」。 */
   getCredentials: () => CredentialsFace | undefined;
-};
+} & PropsLocale<typeof LOCALE_NS>;
 
 /**
  * 本插件的设置卡片。
@@ -448,6 +419,7 @@ type SettingsCardProps = PropsRuntime<'settings.plugin.item'> & {
  * 边改边写会把一次输入变成用户没要求、也无法预览的写入（官方 `CardForm` 的同一取舍）。
  */
 export function SettingsCard({
+  t,
   scope,
   describe,
   getLlm,
@@ -685,11 +657,11 @@ export function SettingsCard({
     return (
       <div key={providerDesc.field} className="stp-field">
         <div className="stp-head">
-          <span className="stp-label">{providerDesc.label}</span>
+          <span className="stp-label">{t(providerDesc.label)}</span>
           <span className="stp-badges">
-            {overridden ? <span className="stp-overridden">自定义</span> : null}
+            {overridden ? <span className="stp-overridden">{t('overridden')}</span> : null}
             <button type="button" className="stp-reset" disabled={!writable || !overridden} onClick={restore}>
-              恢复默认
+              {t('reset')}
             </button>
           </span>
         </div>
@@ -700,7 +672,7 @@ export function SettingsCard({
                 className="stp-input"
                 value={provider}
                 disabled={disabled}
-                placeholder="供应商，如 deepseek"
+                placeholder={t('providerPlaceholder')}
                 onChange={(event) => {
                   // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
                   stageMany({ provider: event.target.value, model: '' });
@@ -710,7 +682,7 @@ export function SettingsCard({
                 className="stp-input"
                 value={model}
                 disabled={disabled}
-                placeholder="模型 id，留空用厂家默认"
+                placeholder={t('modelPlaceholder')}
                 onChange={(event) => stage(modelDesc.field, event.target.value)}
               />
             </>
@@ -720,7 +692,7 @@ export function SettingsCard({
                 className="stp-input"
                 value={provider}
                 disabled={disabled}
-                aria-label="用哪家的模型总结标题"
+                aria-label={t('providerSelectAria')}
                 onChange={(event) => {
                   // 换了厂家，具体模型立刻落到新家的第一个 —— 这一项不允许留空。
                   const next = event.target.value;
@@ -728,14 +700,14 @@ export function SettingsCard({
                   stageMany({ provider: next, model: first });
                 }}
               >
-                <option value="">跟随对话模型</option>
+                <option value="">{t('followMainModel')}</option>
                 {routes.map((route) => (
                   <option key={route.provider} value={route.provider}>
                     {route.displayName}
                   </option>
                 ))}
                 {provider !== '' && !providerKnown ? (
-                  <option value={provider}>{`${provider}（不在已配置列表）`}</option>
+                  <option value={provider}>{t('notInList', { id: provider })}</option>
                 ) : null}
               </select>
               <select
@@ -743,7 +715,7 @@ export function SettingsCard({
                 value={model}
                 // 置灰而不是藏起来：两个框并排，藏一个会让布局跳动。
                 disabled={disabled || following || models.length === 0}
-                aria-label="用哪个模型总结标题"
+                aria-label={t('modelSelectAria')}
                 onChange={(event) => stage(modelDesc.field, event.target.value)}
               >
                 {/* 没有模型就是一个空框：不写字，空着本身就说明问题了。
@@ -756,23 +728,19 @@ export function SettingsCard({
                 ))}
                 {/* 存过的模型不在当前列表里：原样保留，别静默替换掉用户的选择。 */}
                 {model !== '' && !modelKnown ? (
-                  <option value={model}>{`${model}（不在已配置列表）`}</option>
+                  <option value={model}>{t('notInList', { id: model })}</option>
                 ) : null}
               </select>
             </>
           )}
         </div>
         {directory.status === 'unavailable' ? (
-          <p className="stp-hint">
-            {`未能读取已配置的模型列表（${directory.reason}），这两个框已退回手动输入`}
-          </p>
+          <p className="stp-hint">{t('directoryUnavailable', { reason: directory.reason })}</p>
         ) : null}
         {directory.status === 'ready' && !directory.credentialsChecked ? (
-          <p className="stp-hint">未能读取凭据状态，列表只按设置文档判断，可能多列出没配好的供应商</p>
+          <p className="stp-hint">{t('credentialsUnknown')}</p>
         ) : null}
-        {pairBlocked ? (
-          <p className="stp-invalid">这家下面没有可选模型，请换一家，或先到「模型」设置里给它配上模型</p>
-        ) : null}
+        {pairBlocked ? <p className="stp-invalid">{t('pairBlocked')}</p> : null}
       </div>
     );
   };
@@ -784,45 +752,28 @@ export function SettingsCard({
    * 以及立即生效的那一个（隐藏会话总开关，不在 `FIELDS` 里）—— 外观必须一致。
    */
   const renderToggleRow = (options: {
-    title: string;
-    hint?: string | undefined;
+    title: SessionTitlePatternLocaleKey;
+    hint?: SessionTitlePatternLocaleKey | undefined;
     checked: boolean;
     overridden?: boolean;
     onChange: (next: boolean) => void;
   }): React.JSX.Element => (
     <div className="stp-toggleRow">
       <div className="stp-toggleLabel">
-        <span className="stp-toggleTitle">{options.title}</span>
-        {options.hint === undefined ? null : <p className="stp-hint">{options.hint}</p>}
+        <span className="stp-toggleTitle">{t(options.title)}</span>
+        {options.hint === undefined ? null : <p className="stp-hint">{t(options.hint)}</p>}
       </div>
-      {options.overridden === true ? <span className="stp-overridden">自定义</span> : null}
+      {options.overridden === true ? (
+        <span className="stp-overridden">{t('overridden')}</span>
+      ) : null}
       <Switch
         checked={options.checked}
         disabled={!writable}
-        label={options.title}
+        label={t(options.title)}
         onChange={options.onChange}
       />
     </div>
   );
-
-  /** `FIELDS` 里的开关字段。 */
-  const renderToggle = (desc: FieldDesc, notice?: string): React.JSX.Element => {
-    // 开关的真值是布尔，而卡片全程按文本走 —— 两个端点由 `desc.toggle` 给出。
-    const { on, off } = desc.toggle ?? { on: 'llm', off: 'rules' };
-    return (
-      <div key={desc.field} className="stp-field">
-        {renderToggleRow({
-          title: desc.label,
-          hint: desc.hint,
-          checked: draftText(desc) === on,
-          overridden: isOverridden(desc),
-          onChange: (next) => stage(desc.field, next ? on : off),
-        })}
-        {/* 关掉模型总结后，把「接下来会怎样」直接写在开关下面。 */}
-        {notice === undefined ? null : <p className="stp-hint">{notice}</p>}
-      </div>
-    );
-  };
 
   /**
    * 隐藏会话总开关：**一点即生效**，不进 `FIELDS` 的暂存 / 保存流程。
@@ -833,8 +784,8 @@ export function SettingsCard({
   const renderHiddenToggle = (): React.JSX.Element => (
     <div key="stp-hidden-enabled" className="stp-field">
       {renderToggleRow({
-        title: '启用隐藏会话',
-        hint: HIDDEN_ENABLED_HINT,
+        title: 'hiddenEnabledTitle',
+        hint: 'hiddenEnabledHint',
         checked: hiddenEnabled,
         onChange: (next) => {
           setFailed(false);
@@ -857,22 +808,22 @@ export function SettingsCard({
     return (
       <div key={desc.field} className="stp-field">
         <div className="stp-head">
-          <span className="stp-label">{desc.label}</span>
+          <span className="stp-label">{t(desc.label)}</span>
           <span className="stp-badges">
-            {overridden ? <span className="stp-overridden">自定义</span> : null}
+            {overridden ? <span className="stp-overridden">{t('overridden')}</span> : null}
             <button
               type="button"
               className="stp-reset"
               disabled={!writable || !overridden}
               onClick={() => restoreDefault(desc)}
             >
-              恢复默认
+              {t('reset')}
             </button>
           </span>
         </div>
         {renderControl(desc)}
-        {desc.hint === undefined ? null : <p className="stp-hint">{desc.hint}</p>}
-        {fieldInvalid ? <p className="stp-invalid">这里需要一个整数</p> : null}
+        {desc.hint === undefined ? null : <p className="stp-hint">{t(desc.hint)}</p>}
+        {fieldInvalid ? <p className="stp-invalid">{t('invalidNumber')}</p> : null}
       </div>
     );
   };
@@ -893,11 +844,9 @@ export function SettingsCard({
     return (
       <div key="stp-rescue" className="stp-field">
         <div className="stp-head">
-          <span className="stp-label">隐藏的会话</span>
+          <span className="stp-label">{t('rescueTitle')}</span>
         </div>
-        <p className="stp-hint">
-          {`当前已隐藏 ${hiddenCount} 条会话。隐藏仅影响侧边栏的呈现，不影响会话内容与搜索。`}
-        </p>
+        <p className="stp-hint">{t('rescueHint', { count: hiddenCount })}</p>
         <div className="stp-rescueActions">
           <button
             type="button"
@@ -909,7 +858,7 @@ export function SettingsCard({
               void scope.unset('hiddenSessions').catch(() => setFailed(true));
             }}
           >
-            全部取消隐藏
+            {t('rescueAll')}
           </button>
         </div>
       </div>
@@ -918,16 +867,10 @@ export function SettingsCard({
 
   if (!ready) return null;
 
-  const modeDesc = FIELDS.find((desc) => desc.field === 'mode');
-  // 以草稿为准：把开关关掉后，下面那些只对模型有意义的项应当**立刻**消失，
-  // 不用等保存。关掉之后没有什么可配的，留着只会让人以为还生效。
-  const modelMode = modeDesc === undefined || draftText(modeDesc) !== 'rules';
   // 总开关关着的时候，「隐藏的会话」那一块没有意义（根本不存在隐不隐藏），整块收起来。
   const hiddenEnabled = hiddenEnabledDraft ?? hiddenEnabledValue;
   // provider 与 model 合并成一行（两个下拉）渲染，所以 model 不单独出行。
-  const visibleFields = FIELDS.filter(
-    (desc) => (desc.modelOnly !== true || modelMode) && desc.field !== 'model',
-  );
+  const visibleFields = FIELDS.filter((desc) => desc.field !== 'model');
 
   return (
     <li className={expanded ? 'stp-card stp-cardOpen' : 'stp-card'}>
@@ -939,45 +882,35 @@ export function SettingsCard({
       >
         <span className="stp-headText">
           {/* 带上插件名，用户才知道这条设置属于哪个插件。 */}
-          <span className="stp-name">会话标题（session-title-pattern）</span>
-          <span className="stp-description">用模型总结会话标题的类型与主题，也可以退回关键词规则。</span>
+          <span className="stp-name">{t('cardTitle')}</span>
+          <span className="stp-description">{t('cardDescription')}</span>
         </span>
         {/* 折叠不影响暂存的改动，所以标题行要标出「有未保存的改动」。 */}
         {dirty ? (
           // 把「到底哪几项不同」挂在悬停提示里：标记不消失时鼠标一停就知道该查哪个字段。
-          <span className="stp-pending" title={`未保存：${differing.map((desc) => desc.label).join('、')}`}>
-            未保存
+          <span
+            className="stp-pending"
+            title={t('unsavedTip', { fields: differing.map((desc) => t(desc.label)).join('、') })}
+          >
+            {t('unsaved')}
           </span>
         ) : null}
         <span className={expanded ? 'stp-chevron stp-chevronOpen' : 'stp-chevron'}>{ChevronIcon}</span>
       </button>
       {expanded ? (
         <div className="stp-body">
-          {modeDesc === undefined
-            ? null
-            : renderToggle(
-                modeDesc,
-                modelMode
-                  ? undefined
-                  : '已改用关键词规则：类型按关键词匹配得出、主题取首条消息原文，标题不会随对话更新。下面的标题格式与长度上限仍然有效。',
-              )}
-          {visibleFields
-            .filter((desc) => desc.field !== 'mode')
-            .map((desc) => {
-              if (desc.toggle !== undefined) return renderToggle(desc);
-              return desc.field === 'provider' && modelDesc !== undefined
-                ? renderModelPair(desc, modelDesc)
-                : renderField(desc);
-            })}
+          {visibleFields.map((desc) =>
+            desc.field === 'provider' && modelDesc !== undefined
+              ? renderModelPair(desc, modelDesc)
+              : renderField(desc),
+          )}
           {renderHiddenToggle()}
           {hiddenEnabled ? renderRescue() : null}
           <div className="stp-footer">
             {failed ? (
-              <p className="stp-failed">保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）</p>
+              <p className="stp-failed">{t('saveFailed')}</p>
             ) : null}
-            {snapshot.writable ? null : (
-              <p className="stp-failed">当前连接为进程内模式，配置不会写入 Host 文档</p>
-            )}
+            {snapshot.writable ? null : <p className="stp-failed">{t('readOnly')}</p>}
             <button
               type="button"
               className="stp-discard"
@@ -993,7 +926,7 @@ export function SettingsCard({
                 setDrafts({});
               }}
             >
-              放弃修改
+              {t('discard')}
             </button>
             <button
               type="button"
@@ -1001,7 +934,7 @@ export function SettingsCard({
               disabled={!writable || !dirty || invalid}
               onClick={() => void save()}
             >
-              保存
+              {t('save')}
             </button>
           </div>
         </div>

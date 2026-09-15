@@ -1,155 +1,143 @@
-# 会话标题 + 隐藏会话（session-title-pattern）
+# Session title + hidden sessions (session-title-pattern)
 
-给 dsh 侧边栏加两个小工具：**标题一眼看懂**，**暂时不用的会话随手藏起来**。
+English | [中文](README.zh.md)
 
-![侧边栏里的会话标题](docs/images/session-list.png)
+Two small tools for the dsh sidebar: **titles you can read at a glance**, and **tuck away the sessions you are not using right now**.
 
-- **自动命名标题** —— 把标题统一成 `0913｜排查｜登录失败`：哪天、哪一类事、聊的什么，
-  由大模型对**整段对话**总结
-- **隐藏会话** —— 把暂时不用的会话藏起来，侧边栏只留最近要用的几个；随时一键显示回来，
-  不删任何东西
+![Session titles in the sidebar](docs/images/session-list.png)
 
-## 安装
+- **Automatic titles** — every title becomes `0913｜排查｜登录失败`: which day, what kind of work, and what it was about, summarized from the **whole conversation** by a model (two Chinese characters for Chinese, one word for English)
+- **Hidden sessions** — put the sessions you are not using away so the sidebar keeps only the recent few; show them all again with one click, and nothing is ever deleted
+
+## Install
 
 ```bash
 dsh plugin --profile web add dsh-session-title-pattern
 ```
 
-每个稳定正式版都发布到 npm，装完就能用，不需要额外配置，也不需要本地编译。
+Every stable release is published to npm, so it works right after installing — no extra configuration and no local build.
 
-## 功能一：自动命名标题
+## Feature 1: automatic titles
 
-### 标题长什么样
+### What a title looks like
 
-dsh 默认的标题是模型随手取的一句话（比如「确认当前模型身份及工具查询」），侧边栏一屏十几个
-会话时认不出哪个是哪天、属于哪一类事。本插件把标题改成三段：
+By default dsh uses a sentence the model happened to produce (for example 「确认当前模型身份及工具查询」); with a dozen sessions on screen you cannot tell which day a session belongs to or what kind of work it was. This plugin turns the title into three parts:
 
 ```
-MMDD ｜ 类型 ｜ 主题
-0913 ｜ 排查 ｜ DeepSeek-Harness 登录失败
+MMDD ｜ type ｜ topic
+0913 ｜ 排查 ｜ DeepSeek-Harness login failure
 ```
 
-- **日期** —— 本机**本地**日期，4 位 `MMDD`（东八区凌晨不会串成前一天）
-- **类型** —— 两个汉字，概括这段会话在做什么（排查 / 生成 / 配置 / 查询…）
-- **主题** —— 对**整段对话**的凝练，而不是取首条消息的前几个字
+- **Date** — your machine's **local** date, four digits `MMDD` (no off-by-one day around midnight)
+- **Type** — what the session is about, **following the interface language**: a Chinese UI gets two Chinese characters (排查 / 生成 / 配置…), an English UI gets a single word (Debug / Config / Docs) — an English conversation under a Chinese UI still gets a Chinese type
+- **Topic** — a summary of the **whole conversation**, not the first few characters of the first message
 
-格式可以自己改，默认模板是 `{MMDD}｜{type}｜{topic}`：
+The format is yours to change; the default template is `{MMDD}｜{type}｜{topic}`:
 
-| 占位符 | 含义 |
+| Placeholder | Meaning |
 | --- | --- |
-| `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` | 日期时间部件，**本地时区**，可任意拼接（`{YYYYMMDD}`、`{HHmmss}`） |
-| `{type}` | 分类。**不写就没有分类** |
-| `{topic}` | 主题。**不写就没有主题** |
+| `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` | Date/time parts, **local time zone**, freely combinable (`{YYYYMMDD}`, `{HHmmss}`) |
+| `{type}` | Type. **Omit it and there is no type**; when it renders empty the whole segment disappears and the neighbouring separator goes with it |
+| `{topic}` | Topic. **Omit it and there is no topic**; it disappears the same way when empty |
 
-直接改模板即可，例如 `{topic}｜{MMDD}`（主题在前）、`{YYYYMMDD} {topic}`（带年份）。
+Change the template directly, e.g. `{topic}｜{MMDD}` (topic first) or `{YYYYMMDD} {topic}` (with the year).
 
-### 什么时候自动更新
+### When it updates
 
-- **第 1 条消息** —— 由 dsh 自身调度，先生成一版标题
-- **之后每 10 条对话**（可配）—— 本插件触发一次重算，其余轮次完全不调用模型
-- 只处理顶层会话，fork 出的子会话不参与自动命名
+- **On the first message** — dsh schedules this itself and produces a first title
+- **Every 10 messages afterwards** (configurable) — this plugin triggers one recompute; the other turns never call the model
+- Only top-level sessions are handled; forked child sessions are not auto-named
 
-每次重算只发「首条消息 + 上次主线 + 上次摘要 + 新增几轮」，合计几百 token，
-**跟会话聊了多久无关**（早期对话的原文只会向前压缩，不会被重新发送）。
+Each recompute sends only "first message + last main line + last summary + the new turns" — a few hundred tokens in total, **no matter how long the conversation has been going** (earlier text is only ever compressed forward, never re-sent).
 
-模型默认跟随会话当前的主模型；也可以在设置里单独指定。
-超时、报错、没有可用路由时**一律保留上一个标题**，不会把已经好用的标题刷没。
+The model follows the session's current main model by default; you can also pick one in the settings.
 
-### 手动重算与改名
+Failures behave differently depending on what already exists:
 
-![标题旁的按钮，悬停显示提示](docs/images/retitle-button.png)
+- **A title already exists**: timeouts, errors, and a missing route all **keep the previous title** — a good title is never wiped out
+- **No title yet** (the very first attempt failed): instead of waiting for the model, the plugin builds a fallback title locally — the date as usual, **no type**, and the topic taken from the **leading words** of the first message (the same rule dsh uses for its own first-prompt naming: the first 8 whitespace-separated words, then a byte cap; Chinese has no spaces, so for Chinese this is effectively the whole message cut by bytes), e.g. `0915｜login failure reason`. The next recompute replaces it as soon as the model works
 
-**点头部按钮**：标题右侧第一个位置有个铅笔图标，点开是一张「重命名会话」卡片 ——
-输入框预填当前标题，可以手动改；「自动生成」会真算一版标题、**只填进输入框**；
-「确定保存」写入并锁定（锁定后不再自动更新），左下角的锁定开关可随时解除。
+**The type** uses the same language as the interface copy — both follow dsh's **interface language** (Settings → General → Language). **The topic follows the conversation's language.** So an English conversation with a Chinese UI reads exactly `0915｜排查｜Login 401`.
 
-**敲命令**：在输入框输入 `/retitle` 回车。
+### Manual recompute and rename
 
-> 自动命名只在「非 fork 子会话 且 第一条人类消息 且 尚无标题」时触发，所以后续改标题只能走
-> 上面两个入口。会话列表每行的三点菜单（重命名 / 分叉 / 归档）是平台封闭组件、没有扩展位，
-> 第三方插件无法往里加菜单项。
+![The button next to the title, with its tooltip](docs/images/retitle-button.png)
 
-### 标题显示宽度
+**Click the header button**: the first item to the right of the title is a pencil icon; it opens a "Rename session" card — the input is prefilled with the current title and can be edited by hand; "Generate" really computes a title and **only fills the input**; "Save" writes it and locks it (no further automatic updates), and the lock switch in the bottom-left corner releases it at any time.
 
-dsh 把标题渲染成面包屑的最后一段，上游给它写死了 `max-width:220px` —— 扣掉内边距、再减去
-`MMDD｜类型` 前缀，留给主题的只有七八个中文字。本插件在客户端激活时**自动注入**一条覆盖规则
-（无需任何配置）：
+**Type a command**: enter `/retitle` in the input box.
+
+> Automatic naming only fires for "a top-level session, the first human message, and no title yet", so later renames can only use the two entry points above. The three-dot menu on each session row (rename / fork / archive) is a closed platform component with no extension slot, so a third-party plugin cannot add menu items to it.
+
+### Title display width
+
+dsh renders the title as the last breadcrumb segment, and the upstream stylesheet hard-codes `max-width:220px` for it — after padding and the `MMDD｜type` prefix, only seven or eight Chinese characters are left for the topic. When the client activates, this plugin **injects** an override rule (no configuration needed):
 
 ```css
 [class*="_crumbCurrent"]{max-width:min(640px, 60vw) !important;}
 ```
 
-只放宽**当前会话标题**，祖先会话与子代理的面包屑保持原样。若上游改了类名，这条规则会静默失效
-（不报错，只是标题又变短）—— DevTools 选中标题元素，看 `class` 里是否还有 `_crumbCurrent`
-即可确认。
+Only the **current session's title** is widened; ancestor sessions and subagent breadcrumbs keep the original width. If upstream renames the class, the rule fails silently (no error — the title just gets short again): select the title element in DevTools and check whether `class` still contains `_crumbCurrent`.
 
-## 功能二：隐藏会话
+## Feature 2: hidden sessions
 
-dsh 只有「归档」一种收起会话的方式，而且是单向的：收起来之后想找回来很麻烦
-（平台侧写明没有取消归档的入口：*No Session deletion or unarchive control*）。
+dsh offers only "archive" for putting a session away, and it is one-way: getting one back afterwards is painful (the platform states plainly that there is *No Session deletion or unarchive control*).
 
-但很多会话只是暂时不用了 —— 不想删掉，一直留在侧边栏又碍事。本插件提供一份**自己维护的
-隐藏列表**：把暂时不用的藏起来，侧边栏只留最近要用的几个，需要时一键显示回来，随时可逆。
+But plenty of sessions are simply not in use right now — you do not want to delete them, yet they clutter the sidebar. This plugin keeps **its own hidden list**: put the ones you are not using away, keep the sidebar down to the recents, and bring them back with one click whenever you want. Fully reversible.
 
-| | 隐藏（本插件） | 归档（平台） |
+| | Hidden (this plugin) | Archived (platform) |
 | --- | --- | --- |
-| 范围 | 只影响侧边栏显不显示 | 所有分组界面都不再列出 |
-| 可逆 | 随时显示回来 | 想找回来很麻烦 |
-| 会话本身 | 完全不动 | 完全不动 |
+| Scope | Only whether the sidebar shows it | Gone from every grouped view |
+| Reversible | Show it again any time | Getting it back is painful |
+| The session itself | Untouched | Untouched |
 
-### 怎么用
+### How to use it
 
-**隐藏一条**：鼠标移到会话行，点行尾那只**划线眼**。
+**Hide one**: hover a session row and click the **struck-through eye** at the end of the row.
 
-![会话行的隐藏按钮，提示「隐藏此会话」](docs/images/hidden-hide-row.png)
+![The hide button on a session row, tooltip "Hide this session"](docs/images/hidden-hide-row.png)
 
-**看回来**：点「工作区」标题行上放大镜左边那只**眼睛**（总开关），被藏起来的会话就都回来了，
-只是**颜色更淡**；点某个会话行上的眼睛即可单独取消隐藏。
+**Bring them back**: click the **eye** to the left of the magnifier in the "Workspaces" header (the master switch); the hidden sessions come back, just **dimmed**; click the eye on an individual row to unhide that one.
 
-![总开关：一键显示 / 收起被隐藏的会话](docs/images/hidden-toggle-all.png)
+![Master switch: show / collapse hidden sessions with one click](docs/images/hidden-toggle-all.png)
 
-![被隐藏的会话淡化显示，点眼睛即取消隐藏](docs/images/hidden-unhide-row.png)
+![Hidden sessions render dimmed; click the eye to unhide](docs/images/hidden-unhide-row.png)
 
-两个图标的语义统一为「**眼睛 = 这些东西现在已经露出来了**」：会话行已隐藏 → 眼睛（点它取消
-隐藏），未隐藏 → 划线眼；总开关正在显示被隐藏的会话 → 眼睛，否则划线眼。鼠标停在眼睛上会
-**立刻**弹出说明。
+Both icons mean the same thing: **an eye means "these are showing right now"**. A hidden session row shows an eye (click it to unhide); one that is not hidden shows the struck-through eye. When the master switch is currently revealing hidden sessions it shows an eye, otherwise the struck-through one. Hovering an eye pops its explanation **immediately**.
 
-正在打开的那一条会先留着（避免正在聊的内容突然"消失"），切到别的会话后它自然消失。
+The session you currently have open is kept visible (so the conversation you are reading does not suddenly "disappear"); it goes away on its own once you switch to another session.
 
-**想关掉整个功能**：设置卡片里的「**启用隐藏会话**」（默认打开）一点即生效。关掉 ≠ 重置 ——
-设过的隐藏列表原样保留，以后再打开该隐藏的还是隐藏着；要真正清空，用卡片里的「全部取消隐藏」。
+**Turning the whole feature off**: the "**Enable hidden sessions**" switch in the settings card (on by default) takes effect immediately. Off ≠ reset — the hidden list is kept exactly as it was, and re-enabling leaves the same sessions hidden; to really clear it, use "Unhide all" in the card.
 
-### 它是什么、不是什么
+### What it is and is not
 
-- 隐藏只影响侧边栏显示：会话仍在列表里，打开、搜索、命令、标题自动生成全部照常。
-- **不会**删除会话，也不动会话日志；隐藏列表存在本插件的设置文档里，刷新、重启、换浏览器都保持。
-- 隐藏是在 DOM 层实现的（平台没有能按会话过滤列表行的扩展位），上游一改版可能静默失效 ——
-  点不动、藏不掉的时候，先看控制台有没有 `[dsh-session-title-pattern]` 前缀的告警；
-  设置卡片里的「全部取消隐藏」是随时可用的兜底出口。
+- Hiding only affects the sidebar: the session stays in the list, and opening, searching, commands, and automatic titles all keep working
+- It **never** deletes a session and never touches the session log; the hidden list lives in this plugin's settings document, so it survives a refresh, a restart, and a different browser
+- Hiding is implemented at the DOM layer (the platform has no extension slot that can filter list rows by session), so an upstream redesign can break it silently — when clicks stop working or sessions will not hide, first check the console for warnings prefixed with `[dsh-session-title-pattern]`; "Unhide all" in the settings card is the always-available way out
 
-## 配置
+## Configuration
 
-### 设置界面（推荐）
+### Settings UI (recommended)
 
-![设置面板：模型开关、重算间隔、模型选择、超时、标题格式、长度上限](docs/images/settings-card.png)
+![Settings panel: recompute interval, model selection, timeout, title format, length limit](docs/images/settings-card.png)
 
-打开 dsh 的「**设置 → 插件**」，找到本插件的卡片（默认**收起**，点标题行展开）：
+Open dsh's **Settings → Plugins** and find this plugin's card (collapsed by default; click its header row to expand):
 
-| 项 | 说明 |
+| Item | Meaning |
 | --- | --- |
-| **用模型总结标题** | 开关，默认打开。关掉后不再调用模型，退回内置的本地规则（不联网） |
-| **每隔几条对话重算一次** | 默认 `10`。填 `0` = 只在新建会话时算一次 |
-| **标题总结大模型** | 一行两个下拉：左边挑厂家（第一个是「跟随对话模型」），右边挑该厂家的**具体模型**。只列出你已配置且可用的供应商 |
-| **超时** | 模型慢的时候（比如免费档排队）就往大调 |
-| **标题格式** / **标题长度上限** | 标题的三段长什么样、最长多少 |
-| **启用隐藏会话** | 隐藏会话功能的总开关，一点即生效 |
+| **Recompute every N messages** | Default `10`. `0` = compute once when the session is created |
+| **Model for title summaries** | One row, two dropdowns: the provider on the left (the first entry is "Follow the conversation model") and that provider's **specific model** on the right. Only the providers you configured and that are available are listed |
+| **Timeout** | Raise it when the model is slow (e.g. a free tier queueing) |
+| **Title format** / **Title length limit** | What the three parts look like, and how long the title may get |
+| **Enable hidden sessions** | Master switch for the hidden-sessions feature; takes effect immediately |
 
-改动是**暂存**的，点「保存」才写入；每个字段会标出是否**自定义**过，可以单字段「恢复默认」，
-底部「**放弃修改**」丢掉这次没保存的改动。
+Edits are **staged** and written only when you press "Save"; each field marks whether it was **customized**, can be reset on its own, and "**Discard**" at the bottom drops edits you have not saved.
 
-### profile 的 `cordis.patch.yml`
+> The UI copy is **bilingual** and follows dsh's interface language (Settings → General → Language).
 
-适合脚本化或批量部署：
+### `cordis.patch.yml` in the profile
+
+For scripted or bulk deployments:
 
 ```yaml
 - id: session-title-pattern
@@ -159,54 +147,49 @@ dsh 只有「归档」一种收起会话的方式，而且是单向的：收起�
     maxBytes: 80
 ```
 
-| 键 | 类型 | 默认值 | 说明 |
+| Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `retitleEvery` | number | `10` | 每多少条人类消息重算一次标题，最小 `0`；`0` = 只在新建会话时算一次 |
-| `provider` | string | 空 | 指定模型 provider，**必须与 `model` 成对**；留空则跟随会话主模型 |
-| `model` | string | 空 | 指定模型 id，**必须与 `provider` 成对** |
-| `timeoutMs` | number | `30000` | 单次模型调用超时（毫秒） |
-| `maxOutputTokens` | number | `512` | 输出 token 上限的保险丝。界面上不出现，需要时走这里 |
-| `maxInputBytes` | number | `4096` | 单次调用输入字节上限 |
-| `template` | string | `{MMDD}｜{type}｜{topic}` | 标题格式模板 |
-| `maxBytes` | number | `80` | 标题总长度上限（UTF-8 字节），最小 20 |
-| `hiddenEnabled` | boolean | `true` | 隐藏会话功能的总开关 |
-| `hiddenSessions` | string[] | `[]` | 被隐藏的会话 id（由界面上的眼睛按钮写，不用手填） |
-| `revealHiddenAll` | boolean | `false` | 是否把被隐藏的会话显示出来 |
+| `retitleEvery` | number | `10` | How many human messages between title recomputes; minimum `0`; `0` = compute once when the session is created |
+| `provider` | string | empty | Model provider; **must be paired with `model`**; empty follows the session's main model |
+| `model` | string | empty | Model id; **must be paired with `provider`** |
+| `timeoutMs` | number | `30000` | Timeout for one model call (ms) |
+| `maxOutputTokens` | number | `512` | Output token fuse. Not shown in the UI; reach for it here when needed |
+| `maxInputBytes` | number | `4096` | Input byte cap for one call |
+| `template` | string | `{MMDD}｜{type}｜{topic}` | Title format template |
+| `maxBytes` | number | `80` | Total title length cap (UTF-8 bytes), minimum 20 |
+| `hiddenEnabled` | boolean | `true` | Master switch for the hidden-sessions feature |
+| `hiddenSessions` | string[] | `[]` | Ids of hidden sessions (written by the eye buttons; no need to type them) |
+| `revealHiddenAll` | boolean | `false` | Whether hidden sessions are currently revealed |
 
-> 默认模板里的 `｜` 是全角竖线（U+FF5C）。认不出的占位符会**原样留在标题里**（如 `{date}`），
-> 方便一眼看出是模板写错了。
+> The `｜` in the default template is a full-width vertical bar (U+FF5C). A placeholder the plugin does not recognize **stays in the title verbatim** (e.g. `{date}`), so a typo in the template is obvious at a glance.
 >
-> ⚠️ `maxBytes` 必须 ≤ `session-title` 行的 `maxTitleBytes`（`dsh-base` 默认 **80**），
-> 超出部分会被**静默截断**。
+> ⚠️ `maxBytes` must be ≤ `maxTitleBytes` of the `session-title` row (`dsh-base` uses **80** by default); anything beyond is **silently truncated**.
 >
-> 优先级是 `schema 默认值 → 组合层（本节） → 用户层（设置界面）`：界面里改过的字段，
-> 改 `cordis.patch.yml` 不会生效，除非先在界面上「恢复默认」。
+> Precedence is `schema default → composition layer (this section) → user layer (settings UI)`: for a field you changed in the UI, editing `cordis.patch.yml` has no effect until you "Reset" it in the UI first.
 
-## 出问题时
+## When something goes wrong
 
-**dsh 启动失败**：本插件带浏览器端代码，dsh 版本过老可能不兼容。在 profile 的
-`cordis.patch.yml` 里**只关掉本插件**即可恢复，之后升级 dsh 再重新安装：
+**dsh fails to start**: this plugin ships browser-side code, so a very old dsh may not be compatible. In the profile's `cordis.patch.yml`, **disable only this plugin** and dsh recovers; upgrade dsh and install again afterwards:
 
 ```yaml
 - id: session-title-pattern
   disabled: true
 ```
 
-## 开发
+## Development
 
 ```bash
 npm install
-npm run build        # 先构建 host 再构建 client
+npm run build        # builds host first, then client
 npm run typecheck
 ```
 
-> **`lib/` 是提交进 git 的构建产物** —— dsh 加载的是 `package.json` 的 `main`（`lib/index.mjs`），
-> 运行时不编译 TypeScript。改完 `src/` 必须重新 `npm run build` 并把 `lib/` 一起提交，
-> 否则改动不会生效。
+> **`lib/` is a build artefact committed to git** — dsh loads `main` from `package.json` (`lib/index.mjs`) and never compiles TypeScript at runtime. After changing `src/` you must run `npm run build` again and commit `lib/` with it, or the change will not take effect.
 
-实现细节（成本模型、隐藏会话为什么只能在 DOM 层做、历代踩坑）记在
-[DEVELOPMENT.md](./DEVELOPMENT.md)。
+Implementation details (the cost model, why hidden sessions can only work at the DOM layer, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
 
-## 许可证
+> This README has two languages: this file and [README.zh.md](README.zh.md). **Changing one means changing the other** — the copy readers actually see is the one that counts.
+
+## License
 
 MIT

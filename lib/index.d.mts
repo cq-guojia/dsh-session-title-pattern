@@ -27,8 +27,6 @@ export interface Config {
    * 否则服务在写入前会二次截断，超出部分被静默丢弃。
    */
   maxBytes: number;
-  /** `llm` 用模型总结类型与主题；`rules` 回到零 token 的关键词规则。 */
-  mode: 'llm' | 'rules';
   /**
    * 每多少条人类消息重算一次标题。1 表示每轮都重算（最贵）。
    *

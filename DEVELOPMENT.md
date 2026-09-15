@@ -11,9 +11,184 @@
 
 ---
 
-## 当前版本：v0.7.1
+## 当前版本：v0.7.2
 
-### v0.7.1（本次）
+### v0.7.2（本次）
+
+**英文支持改造。** 用户原话：「给我一个需要支持英文的改进方案」。
+
+用户给的可见项四条：①不用模型总结的功能直接砍掉，必须用模型；②类型「中文还是两个汉字，
+英文就用一个单词」；③设置与提示要有中英双语；④其余让我补。落地方案先出、经确认后才动手。
+
+**1. 砍掉 rules 模式（必用模型）。**
+
+删除 `Config.mode`、设置卡片里的「用模型总结标题」开关、`modelOnly` 机制、`classifyMessage`
+与 11 类关键词表、`FALLBACK_TYPE`。`buildRuleTitle` 收敛为 `buildFallbackTitle`。
+设置卡片少一行，其余项常显。
+
+**失败的语义改成分两段**（判定依据 = **会话当前是否已有标题**）：
+
+| 场景 | 表现 |
+| --- | --- |
+| 已有标题（重算 / 修改） | 抛错 → 服务保留上一次标题（原有行为） |
+| 还没有标题（新建会话首次就失败） | 本地兜底，不报错 |
+
+判定用 `ctx.sessionTitle.get(session)?.title` 而**不是** `state.summary` —— `/retitle` 会清摘要
+但标题仍在，用摘要判定会让手动重算误触发兜底。
+
+**兜底标题的口径（用户逐字定义）**：「如果请求大模型失败，就忽略分类，后面直接拿前多少个字
+就可以了……比如用户设置的是 `{MMDD}｜{type}｜{topic}`，那标题就是 `0915｜xxxxxxxxxxx`」。
+即：日期时间部件本地渲染（`MMDD`/`YYMMDD` 这类本来就不需要模型）、**类型整段省略**、
+主题取首条消息正文，长度由 `maxBytes` 收口。
+
+> **后续修正（同一版本内，见第 7 条）**：主题的截断口径改为直接复用官方
+> `fallbackSessionTitle()`，与 dsh 自带那次首次命名逐字一致。
+
+为此 `formatTitle` 新增**空段折叠**：占位符渲染成空串时先打上内部标记 `EMPTY_SEGMENT`，
+再由 `dropEmptySegments()` 吃掉它**一侧紧邻的分隔符串**。刻意**不做**整体分隔符折叠 ——
+否则用户有意写的 `{YYYY}--{MM}` 会被压成 `2026-09`。
+
+**2. `/title-suggest`（面板的「自动生成」）**：同一个判定 —— 会话**已有标题**时拿不到模型
+就直接回错误文案，不给假草稿；**还没有标题**时退本地兜底，保证按钮永远有反馈。
+
+**3. 类型按语言区分。**
+
+新增 `normalizeType(raw, lang)` 取代 `MAX_TYPE_CHARS` 的一刀切：目标语言是中文 → 只留汉字
+（最多 4 个）；是英文 → **只取第一个单词**、去标点、按 16 字符设安全上限。原实现按 4 个**字符**
+截断，`Debugging` 会变成 `Debu` —— 这是英文支持里最直接的一个缺陷。
+
+`SYSTEM_PROMPT` 改为**按目标语言生成**（`systemPrompt(typeLang)`）：**类型严格按指定语言**，
+主线与主题跟随消息本身的语言；两段示例里**总有一条是「消息语言 ≠ 类型语言」**的情形 ——
+只靠一句文字说明压不住，模型照抄示例比照抄说明可靠（v0.5.22 的教训）。
+
+`parseTitleOutput` 的行首标签补上 `Main line:` / `Type:` / `Topic:`（大小写不敏感、中英冒号都认）
+—— 原来只认中文标签，英文输出会把 `Type: Debug` 整行误当标题行，导致类型与主题错位。
+
+**4. host 侧文案全面英文。** 6 条命令描述、全部命令回执、以及**会随回执冒出来的内部错误**
+（`No usable model route…`、`Title model did not finish normally…`、`The llm service is not ready…`
+等）与 `logger.info/warn` 全部改英文。范围边界：**客户端 `console.warn` 保持中文**（开发向）。
+
+**5. 客户端中英双语（接入平台自带的 locale 服务）。**
+
+这一步的关键发现：dsh **自带 i18n 机制**，第三方插件可直接接入，不必自造。
+
+- 提供方是 `@deepseek-ai/dsh-client-locale`（`ctx.locale`）；官方 `ui-settings-plugins`、
+  `ui-conversation` 都是这么用的（`lib/client.js:1702` 一带）
+- API：`ctx.locale.register(NS, { zh, en })`、`bind(NS)` 拿 `t`、`getSnapshot().revision`、`subscribe()`
+- 槽位注册项加 `locale: NS` → 框架把 `t` 注入组件，且**语言切换时组件自动重渲**
+- 词典键由 `LocaleNamespaceMap` 声明合并约束，且 typed 形式的 `register` 要求
+  `Record<BuiltInLocaleId, …>` —— **两种内置语言都必须给全**，缺键 / 缺语言都是**编译错误**。
+  这是「两种语言不会漏翻」的机械保证，比人肉对齐可靠。
+
+落地：新增 `src/client/locales.ts`（`LOCALE_NS`、`zh`/`en` 扁平词典 50 键、
+`LocaleNamespaceMap` 合并、以及 DOM 层兜底的 `fallbackTranslate`）；
+头部动作与设置卡片两处注册加 `locale: LOCALE_NS`；`FIELDS` 的 `label`/`hint` 改为**词条键**，
+渲染时才 `t()`（否则语言切换不会跟着变）；DOM 层（不在 React 里）用 `bind` 拿 `t`，
+并订阅 `locale/change` 重跑一趟 `decorate` 刷新眼睛的提示气泡与 `aria-label`。
+`package.json` 的 `dsh.client.inject` 与 `devDependencies` 各加一条 `@deepseek-ai/dsh-client-locale`
+（`^0.1.5-rc.2`，注意 npm `latest` 指向旧的 `0.0.1-rc.1`，与其余 devDeps 同款陷阱）。
+
+`ctx.locale` 走 `ctx.inject` 延迟等待（**不能**写进模块级注入声明：组合里缺它会一直 pending）；
+服务就位前 DOM 层用内置中文词典兜底，不会渲染出空串。
+
+**6. 撤销一条原计划的「迁移兼容」。**
+
+方案阶段我担心「删掉 `mode` 后，老 `cordis.patch.yml` 里残留的 `mode: rules` 会让
+schemastery 判为非法键 → dsh 起不来」，建议保留一个「接受但忽略」的兼容键。
+**核实后证明不必**：`object` 校验在非 strict 模式下会把未知键**原样并入结果、不报错**
+（`schemastery/lib/index.mjs:479-487`，且 `Schema.resolve` 的 strict 默认 `false`，见 `:238`）。
+用户的口径（「有就留在那里不用就好了」）本身就是对的，**直接删即可**，无需兼容键。
+
+**7. 同一版本内的两处修正（用户复核后追加）。**
+
+**7.1 兜底主题的截断口径要对齐 dsh 原生。** 原实现只按字节截（`maxBytes` 减日期前缀），
+没有词数上限 —— 英文长句会一路铺到 73 个字符才断。用户追问「原生 dsh 自带的那个第一次命名
+的逻辑是什么」，查证后确认原生是：
+
+```js
+// @deepseek-ai/dsh-session-title/lib/index.js:62
+function fallbackSessionTitle(input, maxWords, maxBytes) {
+  return truncateTitleUtf8(
+    cleanTitleText(input).split(" ").filter(Boolean).slice(0, maxWords).join(" "),
+    maxBytes,
+  ).trimEnd();
+}
+```
+
+即**前 `maxWords` 个空格分隔的词 + 字节上限**。该函数**从包根导出**（`lib/index.js:647`），
+所以直接复用：`buildFallbackTitle` 现在走
+`fallbackSessionTitle(source, FALLBACK_MAX_WORDS, format.maxBytes)`。
+`FALLBACK_MAX_WORDS = 8` —— 原生那个值来自 service 的私有配置（`fallbackMaxWords`，由 dsh-base
+给值），插件读不到，取与官方 README 示例一致的 8；用户明确表示**不需要做成配置项**。
+顺带把控制字符清理换成了官方的 `cleanTitleText`。
+
+> 一个原生就有的特性：`split(' ')` 对中文是退化的 —— 中文没有空格，整句算「一个词」，
+> 所以**词数上限对中文不起作用**，中文只受字节约束。这是原生行为，不是我们的偏差。
+
+**7.2 类型的语言由「语言环境」决定，不是对话语言。** 用户原话：「不是英文会话，是用户选的
+什么样的语言环境，就是语言环境决定了分类是中文还是英文，如果语言环境是中文，即便对话是英文，
+那分类也应该是中文，反之亦然。」
+
+原实现让类型跟随消息语言，是错的。难点在于 **host 侧没有 locale 服务**（已核实
+`dsh-commands` / `dsh-settings` / `dsh-session-title` / `dsh-llm` 全都没有）。解法是读设置文档：
+locale 插件把偏好存在 `locale` 命名空间的 `preference` 字段里
+（`dsh-client-locale/lib/types/locale-settings.d.ts`），而 `ctx.settings.get(ns)` 是公开读取面
+（`dsh-settings/lib/types/index.d.ts`「Read one registered namespace's resolved value」）。
+于是 `getUiLocale()` 走 `ctx.settings.get('locale')`。
+
+- 解析顺序：`语言环境 → 对话语言`。后者只在**用户从没显式选过语言**时生效（那时真实语言由
+  浏览器推导，host 看不到），用新增的 `detectMessageLang()` 取最近 3 条消息、按汉字与拉丁字母
+  的个数判断。
+- **主题跟随对话语言**（用户让我给建议，采纳的是这一条）：主题是对内容的凝练，跟内容语言走才
+  不失真；类型是给人扫的分类标签，跟界面语言走。结果形态是 `0915｜排查｜Login 401`。
+- 语言环境换过时，`SessionState.lang` 与本次不一致就清掉 `summary`（它里面那个类型是旧语言的，
+  继续喂给模型会把新语言带偏）；`mainLine` 是句子、跟对话语言走，保留。
+- 读不到语言环境**一律不报错**（`try/catch` + 返回 `undefined`）—— 读设置这件事不该拖垮标题生成。
+
+**8. 对外文档改中英双语（用户确认）。**
+
+用户问：「readme 是不是也应该改成中英文双语？还是就是英文，中文需要点一下看？」，按 dsh 生态的
+统一惯例选了后者。核对过两个平台包的写法（`dsh-session-title`、`dsh-client-ui-settings-plugins`），
+它们都是：
+
+| 文件 | 开头一行 |
+| --- | --- |
+| `README.md`（英文，默认） | `English \| [中文](README.zh.md)` |
+| `README.zh.md`（中文） | `[English](README.md) \| 中文` |
+
+**为什么默认英文**：npm 与 GitHub **都只默认渲染 `README.md`**，所以国际读者零成本、中文读者
+一次点击就能切；单文件双语（英文在上、中文在下）会让目录要备两套、篇幅翻倍，而且市场抽内容时
+容易抽错语言；只留英文又不合适 —— 项目历史、本文件、现有中文用户群全在中文这侧。
+
+两处**刻意没做**：
+
+- **不加 YAML front-matter**（平台那几个 README 开头的 `description:` / `kind:`）：那是它内部的
+  文档分类，我们不是平台包；市场描述来自 awesome 条目的 `zh`/`en` 字段，截图来自
+  `screenshots.json`，都用不上它。
+- **不做 `README.i18n.yaml`**：平台那份记录两侧的 git blob 哈希，供它自己 monorepo 里的
+  `verify-translation-pairing` 用，第三方跑不了。改为在两个 README 里各写一句「改一份必须同时改
+  另一份」——README 体量小、改动不频繁，手工同步够用。
+
+顺带四处：
+
+1. **英文 README 不是逐字直译，是按最新行为重写**：rules 模式已不存在、类型跟界面语言、
+   主题跟对话语言、兜底是「前 8 个词」、界面中英双语。直译会留下已删除功能的描述。
+2. `package.json` 的 `description` 由中文改为**英文**（npm 页面是国际面），中文描述留给市场条目的
+   `zh` 字段。这与 v0.5.18 记的「同一口径用在三处」不同了 —— 是刻意改的：三处现在各按自己的读者面说话。
+3. `package.json` 的 `files` 补上 `README.zh.md`（npm 的 always-include 规则是否覆盖
+   `README.zh.md` 并不明确，显式列出最稳）。
+4. **截图继续用中文那 6 张**（用户决定）：界面本身中英自适应，英文 README 复用同一套图；
+   英文界面截图要在真实 dsh 里跑一次才能补，留给以后。`DEVELOPMENT.md` 则**保持中文** ——
+   维护者日志，逐版翻译是纯开销，平台也没对外暴露它的中文版。
+
+**验证**：`npm run typecheck` 通过；`npm run build` 重建 `lib/`；
+产物核对 —— `lib/client.js` **不含** `dsh-client-locale` 的 require（type-only 引入已被抹掉，
+不进浏览器模块表），`lib/index.mjs` 已无 `mode` 的 union schema 且含新英文文案；
+两份 README 的章节与措辞逐节对齐。
+
+**待实机验证（本项目没有自动化测试，只能装到 dsh 上跑）**：见文末「待办事项」。
+
+### v0.7.1
 
 **换一版对外说明：README 精简 + 隐藏会话截图入库**（用户原话：「写的太复杂了，没有人有耐心看」）。
 只动文档与仓库内图片，**代码未变**（`lib/` 无需重建）。
@@ -1510,7 +1685,10 @@ Phase 7: 长期维护      🔄  进行中 (4/4 持续项)
   进行中     7 步  = Phase 4 的 4.1 / 4.2 + Phase 5 的 5.7 + Phase 7 的 4 项
   未做       4 步  = 4.3 / 4.4 / 4.5、5.6
 
-当前版本: v0.7.1（v0.7.0 新增「隐藏会话」；v0.7.1 为文档改版，代码未变；市场 PR #5064 等审核）
+当前版本: v0.7.2（v0.7.0 新增「隐藏会话」；v0.7.1 为文档改版，代码未变；
+v0.7.2 英文支持改造 —— 删除 rules 模式、失败语义改两段、兜底复用官方 fallbackSessionTitle、
+类型跟界面语言／主题跟对话语言、设置与提示接入平台 locale 服务实现中英双语、host 文案统一英文、
+README 改中英双语（英文默认）；市场 PR #5064 等审核）
 ```
 
 ---
@@ -1545,10 +1723,30 @@ cfcbc13 fix: 解锁时 messageSeqs 为空改用当前消息的 seq（用户改�
    ⑧ 设置卡片里「已隐藏 N 条」与实际一致，「全部取消隐藏」有效。
    任何一步不生效就看控制台有没有本插件前缀的告警（`_sessionRow` / `__reactFiber$` 的排查
    写在 README「没生效时怎么排查」）
-4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle` / `classifyMessage` /
-   `parseTitleOutput` / `buildPromptInput` / `composeTitle`；v0.7.0 的
-   `rowMode()` 也是纯函数，一并覆盖
-5. **（可选，低优先级）`rules` 模式的分类与主题提取优化** —— 单字关键词误判、停用词与分句
+4. **补单元测试**（vitest）—— 优先覆盖纯函数：`formatTitle`（含空段折叠）/ `normalizeType` /
+   `parseTitleOutput` / `buildPromptInput` / `composeTitle` / `buildFallbackTitle`；
+   v0.7.0 的 `rowMode()` 也是纯函数，一并覆盖
+5. **实机验证 v0.7.2 英文支持改造**（只能实机跑）——
+   ① 新建英文会话，确认标题是 `MMDD｜Word｜topic`（类型是**一个英文单词**：既不是两个汉字，
+   也不是被截短的 `Debu`）；② 中文会话仍出两个汉字；
+   ③ 把 provider/model 配成一条不通的路由，在**新会话**里发第一条消息，确认标题落成
+   `0915｜<首条消息片段>`（**没有类型段、也没有双竖线**），而不是报错或留空；
+   ④ 在**已有标题**的会话里敲 `/retitle`，确认失败时标题**原样保留**；
+   ⑤ 打开重命名卡片点「自动生成」，有标题时失败应显示**英文错误**、不出假草稿；
+   ⑥ 设置界面切到英文，确认卡片、重命名面板、隐藏会话的悬浮提示**全部**跟着变英文
+   （含 `aria-label`），切回中文能恢复；
+   ⑦ 关掉「启用隐藏会话」再打开，确认眼睛与气泡文案正常；
+   ⑧ 把界面语言切成英文，在**中文会话**里生成标题：类型应是**英文单词**、主题仍是中文；
+   再切回中文，在**英文会话**里确认类型变回中文 —— 这条验证的是「语言环境决定类型语言」，
+   也是本次唯一依赖 `ctx.settings.get('locale')` 的路径，**必须实机确认**；
+   ⑨ 在**新会话**发一条较长的英文首条消息并让模型失败，确认兜底主题是**前 8 个词**
+   （而不是铺满 73 个字符）。
+6. **（可选，低优先级）英文类型词观察** —— 模型偶尔会给短语而不是一个单词（如
+   `Feature work`），`normalizeType` 只取第一个词会得到 `Feature`；收集几个实例后再决定
+   是否把提示词的约束写得更硬
+7. **（可选）英文界面截图** —— 现在 6 张截图都是中文界面，英文 README 复用同一套。
+   等实机把 dsh 切成英文，可以补一套英文图并换进 `README.md`（`screenshots.json` 是市场
+   截图清单，两份 README 共用，换图时要一起看）
 
 > 发版流程照旧：`npm run build`（改了 `src/` 才需要）→ 提交（含 `lib/`）→
 > 打同名 tag 并推送 → `npm publish`。两条通道的版本号要保持一致。

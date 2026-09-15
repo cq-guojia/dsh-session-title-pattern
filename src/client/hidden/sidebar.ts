@@ -15,6 +15,7 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type {} from '@deepseek-ai/dsh-api-session-controller/client';
 
 import { LOG } from '../log';
+import type { LocaleTranslate } from '../locales';
 import type { PluginConfig } from '../settings-card';
 import { createHiddenConfigStore } from './config';
 import type { HiddenConfig, HiddenConfigStore } from './config';
@@ -92,8 +93,13 @@ function createWarner(): (message: string) => void {
  *
  * @param ctx - 已注入 `settingsScope` 的上下文（不能拿原始 ctx 用，受保护代理会抛）。
  * @param scope - 绑定到本插件设置命名空间的设置作用域。
+ * @param getT - 取当前语言的翻译函数（DOM 层不在 React 里，拿不到框架注入的 `t`）。
  */
-export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginConfig>): void {
+export function installHiddenSessions(
+  ctx: Context,
+  scope: SettingsScope<PluginConfig>,
+  getT: () => LocaleTranslate,
+): void {
   const store: HiddenConfigStore = createHiddenConfigStore(scope);
   const warnOnce = createWarner();
 
@@ -140,7 +146,8 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     if (actions === null) return;
     const eye = ensureEye(actions, 'session', onSessionEye);
     eye.dataset.stpId = id;
-    setEyeState(eye, isHidden, isHidden ? '取消隐藏' : '隐藏此会话');
+    const t = getT();
+    setEyeState(eye, isHidden, isHidden ? t('unhideSession') : t('hideSession'));
   };
 
   /**
@@ -172,7 +179,8 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
     }
 
     const revealing = config.revealHiddenAll;
-    setEyeState(eye, revealing, revealing ? '收起被隐藏的会话' : '显示被隐藏的会话');
+    const t = getT();
+    setEyeState(eye, revealing, revealing ? t('collapseHidden') : t('showHidden'));
   };
 
   function decorate(): void {
@@ -213,6 +221,8 @@ export function installHiddenSessions(ctx: Context, scope: SettingsScope<PluginC
   ctx.effect(() => {
     injectStyle(HIDDEN_STYLE_ID, HIDDEN_CSS);
     const stopTips = installEyeTips();
+    // 语言切换：重跑一趟 decorate，把眼睛的提示文案与无障碍标签换成新语言。
+    ctx.on('locale/change', dirty);
     dirty();
 
     const stopWatch = watchSidebarRegion(dirty);
