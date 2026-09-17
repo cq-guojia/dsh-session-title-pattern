@@ -11,9 +11,43 @@
 
 ---
 
-## 当前版本：v0.7.4
+## 当前版本：v0.7.5
 
-### v0.7.4（本次）
+### v0.7.5（本次）
+
+**标题里的日期改为「会话创建时间」，不再用生成那一刻的 `new Date()`。**
+
+用户原话：「重命名文件的时候用的给文件命名的时间用的是当前的时间，我觉得这是不对的，
+应该是用这个对话创建的时间，或是第一次对话的时间」。
+
+问题：`{MMDD}` 这类日期部件的锚点原来是调用点的 `new Date()`，于是每满 `retitleEvery` 条
+重算一次、前缀就刷新一次 —— 跨零点继续聊，同一个会话的日期当天就变了；对老会话敲 `/retitle`
+也会把前缀跳到今天。
+
+修法（**方案 B**，用户选定：只用会话创建时间，不加 `dateSource` 配置项）：统一走
+`session.header.createdAt`（存储层创建会话时写死的 Unix 毫秒，恢复 / 重启读回同一个值），
+4 个调用点全部改掉：
+
+| 调用点 | 原来 | 现在 |
+| --- | --- | --- |
+| `generate()` 正式生成 | `composeTitle(new Date(), …)` | `composeTitle(createdAt, …)` |
+| `generate()` 本地兜底 | `buildFallbackTitle(messages, config)` | `buildFallbackTitle(messages, config, createdAt)` |
+| `title-suggest` 草稿 | `composeTitle(new Date(), …)` | `composeTitle(createdAt, …)` |
+| `title-suggest` 兜底 | `buildFallbackTitle(messages, config)` | `buildFallbackTitle(messages, config, createdAt)` |
+
+- 新增 `sessionStartedAt(session)`（host/index.ts）：一行 `new Date(session.header.createdAt)`。
+- `rules.ts` 的渲染逻辑**一行没动** —— `formatTitle` / `composeTitle` 本来就把 `now` 当参数收；
+  `buildFallbackTitle` 的默认值 `new Date()` 保留为纯函数兜底，实际调用点都显式传。
+- 草稿与自动生成**同口径**，否则面板预览与正式标题会差一天。
+- `{HH}` `{mm}` `{ss}` 也一并锚到同一时刻：用 `{HHmmss}` 模板的人会发现时间不再变化，
+  这是「前缀稳定」的必然结果，README 里已注明。
+- 副作用（预期）：老会话重算时前缀回到它自己那天的日期；用户手动改名（锁定态）的标题不受影响。
+
+**待实机验证**（无自动化测试，只能装进真实 dsh profile 跑）：① 昨天开的会话敲 `/retitle`，
+前缀是否仍是昨天；② 跨零点发出第 `retitleEvery` 条消息，前缀是否没跳；③ 面板「自动生成」的
+草稿日期与自动标题是否一致。
+
+### v0.7.4
 
 **撤销 v0.7.3 的锁定态缓存（用户决定），保留两个默认值修改。**
 
@@ -1071,6 +1105,7 @@ git 托管包的一刀切策略；更新失败后 profile 可能停在中间状�
 | `topic` | 主题。不写就没有主题 |
 
 - 日期部件**可任意拼接**：`{MMDD}`、`{YYYYMMDD}`、`{HHmmss}` 都成立。
+- 日期时间的锚点是**会话创建时刻**（v0.7.5 起），不是「生成标题的那一刻」。
   实现是「`{...}` 内从左往右逐个吃已知部件，先长后短，吃不下就整体原样保留」
 - 认不出的占位符**原样留在标题里**（如 `{date}`），方便一眼看出是模板写错
 - 主题为空时收掉两端残留的分隔符，不留 `0913｜修复｜` 这样的尾巴

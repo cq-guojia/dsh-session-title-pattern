@@ -242,6 +242,19 @@ function collectHumanMessages(events: readonly SessionEvent[]): SessionTitleUser
   return messages;
 }
 
+/**
+ * 标题里日期时间部件的锚点：**会话创建的瞬间**，不是「生成标题的那一刻」。
+ *
+ * 原来传 `new Date()`，于是每满 `retitleEvery` 条重算一次、日期就刷新一次：跨零点继续聊，
+ * 同一个会话的 `MMDD` 当天就变了；对老会话敲 `/retitle` 也会把前缀跳到今天。
+ *
+ * `header.createdAt` 是存储层在创建会话时写死的 Unix 毫秒（恢复 / 重启读回同一个值），
+ * 所以前缀稳定成「这段对话是哪天开的」，重算多少次都不动。
+ */
+function sessionStartedAt(session: SessionTitleProviderRequest['session']): Date {
+  return new Date(session.header.createdAt);
+}
+
 class SessionTitlePatternProvider implements SessionTitleProvider {
   readonly id = SessionTitleProviderId(name);
   /**
@@ -314,6 +327,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     const messageSeqs = request.messages.map((message) => message.seq);
     // 每次调用都读当前生效的配置，而不是构造时冻结的那份。
     const config = this.getConfig();
+    // 日期锚点：会话创建时刻。用 `new Date()` 会让前缀随每次重算漂移（见 sessionStartedAt）。
+    const createdAt = sessionStartedAt(request.session);
 
     const state = this.stateOf(request.session.id);
     // 进程重启后内存态归零：从会话日志把上一次的标题找回来当锚。
@@ -363,7 +378,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       const parsed = parseTitleOutput(text, typeLang);
       // 模型没按 `类型|主题` 输出时**直接省略类型**：模板里 `{type}` 整段消失、
       // 相邻分隔符一并收掉，主题照用 —— 不因为格式问题让整次生成失败。
-      const title = composeTitle(new Date(), parsed.type, parsed.topic, config);
+      const title = composeTitle(createdAt, parsed.type, parsed.topic, config);
 
       // 主线：模型给了就更新（它自己判断主线有没有变）；没给就沿用上一次的。
       state.mainLine = parsed.mainLine.length > 0 ? parsed.mainLine : state.mainLine;
@@ -402,7 +417,7 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
 
       // **还没有标题 → 本地兜底**（日期 + 首条消息正文，省略类型），别让新会话
       // 停在平台的默认标题上。兜底标题来源仍是 provider，自动更新照常继续。
-      const fallback = buildFallbackTitle(request.messages, config);
+      const fallback = buildFallbackTitle(request.messages, config, createdAt);
       if (fallback.length === 0) {
         this.ctx.logger(name).warn(
           `Title generation failed after message #${request.messages.length} and no local ` +
@@ -517,6 +532,8 @@ function registerPanelCommands(
       recordInput: false,
       handler: async ({ agent, signal }) => {
         const config = getConfig();
+        // 与自动生成同口径：草稿的日期也用会话创建时刻，否则预览与正式标题会差一天。
+        const createdAt = sessionStartedAt(agent.session);
         const messages = collectHumanMessages(agent.session.snapshotEvents());
         if (messages.length === 0) {
           return { kind: 'error', text: 'This session has no messages usable for a title yet' };
@@ -546,7 +563,7 @@ function registerPanelCommands(
             const parsed = parseTitleOutput(text, typeLang);
             return {
               kind: 'success',
-              text: composeTitle(new Date(), parsed.type, parsed.topic, config),
+              text: composeTitle(createdAt, parsed.type, parsed.topic, config),
             };
           }
           if (hasTitle) {
@@ -564,10 +581,10 @@ function registerPanelCommands(
             'Draft title: no usable model route; falling back to a local title for a session ' +
               'that has no title yet',
           );
-          return { kind: 'success', text: buildFallbackTitle(messages, config) };
+          return { kind: 'success', text: buildFallbackTitle(messages, config, createdAt) };
         } catch (error) {
           if (hasTitle) return { kind: 'error', text: `Failed to draft a title: ${String(error)}` };
-          const fallback = buildFallbackTitle(messages, config);
+          const fallback = buildFallbackTitle(messages, config, createdAt);
           if (fallback.length > 0) {
             ctx.logger(name).warn(
               `Draft title model call failed; using a local fallback: ${String(error)}`,
