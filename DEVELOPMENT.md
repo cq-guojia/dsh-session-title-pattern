@@ -97,8 +97,8 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
   目录都不读），按界面语言给插件列表与详情页提供展示名与介绍。中文显示
   「会话标题格式化(dsh-session-title-pattern)」，英文 Session Title Formatter；
   package.json 的 exports 放开 `./locale/*.json` 并把 `locale` 加进 files。
-- `engines.dsh` 声明 `>=0.1.7`，peerDependencies 同步从 `>=0.1.7-rc.1` 收紧为
-  `>=0.1.7`（0.1.7-rc.x 会被兼容性预检判为不兼容）。
+- `engines.dsh` 声明 `>=0.1.7-rc.1`，peerDependencies 同为 `>=0.1.7-rc.1 <0.2.0-0`：
+  0.1.7 系列起（含 rc 预览版）都能装，0.2.0 起判不兼容。
 - 配置表单最后一排改为「标题长度上限（左）｜超时（右）」并排（复用 `.stp-pair`），
   标题格式仍独占一行。
 - 新增插件图标 [icon.svg](icon.svg)（方块拼的 T + 两侧浅色中括号，DeepSeek 蓝）：
