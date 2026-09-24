@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Title Formatter (dsh-session-title-pattern)",
+    "description": "Automatically manage dsh session titles in a date｜type｜topic format: a model summarizes the type and topic of the whole conversation. Manual rename, lock, and scheduled recompute are supported."
+  }
+}

@@ -2,6 +2,7 @@
   "name": "dsh-session-title-pattern",
   "description": "Automatically manage dsh session titles in a date｜type｜topic format: a model summarizes the type and topic of the whole conversation.",
   "version": "0.8.0",
+  "icon": "./icon.svg",
   "keywords": [
     "deepseek",
     "harness",
@@ -26,11 +27,14 @@
     "./client": {
       "default": "./lib/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "docs",
+    "locale",
+    "icon.svg",
     "cordis.patch.yml",
     "screenshots.json",
     "README.md",
@@ -62,14 +66,17 @@
     }
   },
   "license": "MIT",
+  "engines": {
+    "dsh": ">=0.1.7"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-commands": ">=0.1.7-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-llm": ">=0.1.7-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-session": ">=0.1.7-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-session-title": ">=0.1.7-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-settings": ">=0.1.7-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-timeout": ">=0.1.7-rc.1 <0.2.0-0"
+    "@deepseek-ai/dsh-commands": ">=0.1.7 <0.2.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.1.7 <0.2.0-0",
+    "@deepseek-ai/dsh-session": ">=0.1.7 <0.2.0-0",
+    "@deepseek-ai/dsh-session-title": ">=0.1.7 <0.2.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.1.7 <0.2.0-0",
+    "@deepseek-ai/dsh-timeout": ">=0.1.7 <0.2.0-0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4"

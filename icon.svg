@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Session Title Formatter">
+  <title>Session Title Formatter</title>
+  <!-- 左中括号 -->
+  <path d="M19 16 H9 V112 H19" fill="none" stroke="#4D6BFE" stroke-opacity="0.4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 右中括号 -->
+  <path d="M109 16 H119 V112 H109" fill="none" stroke="#4D6BFE" stroke-opacity="0.4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- T：横排 3 块 + 竖排 3 块（连同顶排共 4 层），整体收在括号内不顶格 -->
+  <g fill="#4D6BFE">
+    <rect x="31" y="19" width="18" height="18"/>
+    <rect x="55" y="19" width="18" height="18"/>
+    <rect x="79" y="19" width="18" height="18"/>
+    <rect x="55" y="43" width="18" height="18"/>
+    <rect x="55" y="67" width="18" height="18"/>
+    <rect x="55" y="91" width="18" height="18"/>
+  </g>
+</svg>

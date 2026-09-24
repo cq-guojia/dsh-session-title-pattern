@@ -8,8 +8,6 @@ One small tool for the dsh sidebar: **titles you can read at a glance** — whic
 
 - **Automatic titles** — every title becomes `0913｜排查｜登录失败`: which day, what kind of work, and what it was about, summarized from the **whole conversation** by a model (two Chinese characters for Chinese, one word for English)
 
-> **Upgrading from v0.7.x?** The "hidden sessions" feature was **removed in v0.8.0**: it was built on undocumented DOM internals that dsh 0.1.7's redesign made unmaintainable, and the platform's own **archive** is the supported way to keep unused sessions out of the way. Leftover settings keys (`hiddenEnabled`, `hiddenSessions`, `revealHiddenAll`) are ignored and harmless; your titles and the rest of the configuration carry over unchanged.
-
 ## Install
 
 ```bash

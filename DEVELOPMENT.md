@@ -90,6 +90,21 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
   `style.ts` 的 PAIR_CSS）；选厂家时模型自动落到第一个（保存入口前补解析，显示上
   从不自动补值 —— 不挂「未保存」，v0.7.6 踩过的坑）。
 
+**7. 展示名/介绍跟随界面语言、版本下限收紧、最后一排并排**。
+
+- 新增 `locale/en.json` / `locale/zh.json`（`meta.title` / `meta.description`）：
+  Host 的 `readPluginMeta` 解析 `包名/locale/<语言>.json`（en.json 是入口，没有它整个
+  目录都不读），按界面语言给插件列表与详情页提供展示名与介绍。中文显示
+  「会话标题格式化(dsh-session-title-pattern)」，英文 Session Title Formatter；
+  package.json 的 exports 放开 `./locale/*.json` 并把 `locale` 加进 files。
+- `engines.dsh` 声明 `>=0.1.7`，peerDependencies 同步从 `>=0.1.7-rc.1` 收紧为
+  `>=0.1.7`（0.1.7-rc.x 会被兼容性预检判为不兼容）。
+- 配置表单最后一排改为「标题长度上限（左）｜超时（右）」并排（复用 `.stp-pair`），
+  标题格式仍独占一行。
+- 新增插件图标 [icon.svg](icon.svg)（方块拼的 T + 两侧浅色中括号，DeepSeek 蓝）：
+  package.json 顶层 `"icon": "./icon.svg"`，宿主读文件转 base64 data URL 渲染
+  （支持 SVG/PNG/JPEG/WebP，≤256 KiB），`icon.svg` 已加入 files。
+
 **实机验证清单**：
 
 1. 插件出现在侧边栏「插件」列表的「已安装」分组（前置条件；不在则配置区无从谈起）。
@@ -101,6 +116,8 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
 6. 「标题总结大模型」一排出现两个下拉且只含已配置的供应商；选厂家后模型自动落到
    第一个；保存 → 重进值还在；改语言下拉文案跟随；目录读不到时退回两个文本框并
    显示原因。
+7. 插件列表与详情页的名称/介绍跟随界面语言（中文显示「会话标题格式化」，英文显示
+   Session Title Formatter）；最后一排「标题长度上限 | 超时」并排正确。
 
 **状态**：🔄 代码完成（typecheck + build 通过），待实机验证后发版。
 

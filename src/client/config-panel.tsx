@@ -109,9 +109,13 @@ const FIELDS_BEFORE_PAIR: readonly FieldView[] = [
 ];
 
 const FIELDS_AFTER_PAIR: readonly FieldView[] = [
-  { field: 'timeoutMs', label: 'timeoutLabel', hint: 'timeoutHint', invalid: 'invalidNumber', numeric: true },
   { field: 'template', label: 'templateLabel', hint: 'templateHint' },
+];
+
+/** 最下面一排并排的两个：标题长度上限在左、超时在右（实机反馈）。 */
+const FIELDS_BOTTOM_ROW: readonly FieldView[] = [
   { field: 'maxBytes', label: 'maxBytesLabel', hint: 'maxBytesHint', invalid: 'invalidNumber', numeric: true },
+  { field: 'timeoutMs', label: 'timeoutLabel', hint: 'timeoutHint', invalid: 'invalidNumber', numeric: true },
 ];
 
 export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetField, discard, t }: ConfigPanelProps) {
@@ -202,6 +206,7 @@ export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetFie
           t={t}
         />
         {FIELDS_AFTER_PAIR.map(renderField)}
+        <div className="stp-pair">{FIELDS_BOTTOM_ROW.map(renderField)}</div>
       </SettingsForm>
       {toast !== null ? <Toast key={toast.seq} text={toast.text} tone="success" onDone={dismissToast} /> : null}
     </>
