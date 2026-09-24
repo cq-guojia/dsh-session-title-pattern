@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-title-pattern",
   "description": "Automatically manage dsh session titles in a date｜type｜topic format: a model summarizes the type and topic of the whole conversation.",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "icon": "./icon.svg",
   "keywords": [
     "deepseek",
