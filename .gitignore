@@ -1,5 +1,5 @@
 node_modules/
 .codebuddy/
 *.tgz
-# hindsight MCP registration (machine-specific)
-.trae/mcp.json
+# Trae IDE config (machine-specific)
+.trae/
