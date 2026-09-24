@@ -82,9 +82,9 @@ Only the **current session's title** is widened; ancestor sessions and subagent 
 
 ### Settings UI (recommended)
 
-![Plugin page: the configuration form under the bundle description](docs/images/settings-card.png)
+![Plugin page: the configuration form under the bundle description](docs/images/config-page.png)
 
-Since dsh 0.1.7 the settings live on the plugin's own page: open the **Plugins** view in the sidebar, find this plugin under **Installed**, and open its detail page — the configuration form sits between the description and the entry rows. (The screenshot above still shows the pre-0.1.7 settings card; it is pending a re-shoot.)
+Since dsh 0.1.7 the settings live on the plugin's own page: open the **Plugins** view in the sidebar, find this plugin under **Installed**, and open its detail page — the configuration form sits between the description and the entry rows.
 
 | Item | Meaning |
 | --- | --- |
@@ -145,7 +145,7 @@ npm run typecheck
 
 > **`lib/` is a build artefact committed to git** — dsh loads `main` from `package.json` (`lib/index.mjs`) and never compiles TypeScript at runtime. After changing `src/` you must run `npm run build` again and commit `lib/` with it, or the change will not take effect.
 
-Implementation details (the cost model, how v0.8.0 wires the configuration form into dsh 0.1.7's plugin-page slot, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
+Implementation details (the cost model, how v0.8.1 wires the configuration form into dsh 0.1.7's plugin-page slot, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
 
 > This README has two languages: this file and [README.zh.md](README.zh.md). **Changing one means changing the other** — the copy readers actually see is the one that counts.
 

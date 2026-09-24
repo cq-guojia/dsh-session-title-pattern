@@ -11,9 +11,37 @@
 
 ---
 
-## 当前版本：v0.8.0
+## 当前版本：v0.8.1
 
-### v0.8.0（本次）
+### v0.8.1（本次）
+
+**v0.8.0 实机验证通过；本轮为实机反馈迭代的收尾 + 发版。**
+
+1. **展示名/介绍跟随界面语言**（新增 [locale/en.json](locale/en.json) +
+   [locale/zh.json](locale/zh.json)）：宿主 `readPluginMeta` 静态读取
+   `locale/<语言>.json` 的 `meta.title` / `meta.description`（不执行插件代码），
+   中文「会话标题格式化(dsh-session-title-pattern)」、英文 Session Title
+   Formatter。`en.json` 是入口，缺了整个目录不读，两份必须同时在。
+2. **新增插件图标**（[icon.svg](icon.svg)）：方块拼的红色 T（#E03E3E）+
+   两侧浅蓝中括号（#4D6BFE 40%），28px 内不顶格、纯方角。package.json 顶层
+   `icon` 字段接线（宿主转 base64 data URL，支持 SVG/PNG/JPEG/WebP ≤256KiB）。
+3. **铅笔按钮 hover 框对齐官方 Icon_container**（实机反馈「又大又蠢」）：官方
+   `Button ghost sm` 是 36×28 胶囊（r14），系统头部按钮是 28×28 方形（r8）。
+   [index.tsx](src/client/index.tsx) 改自绘 `.stp-iconBtn`（28×28 / r8），hover/
+   active 用官方 `--dsw-alias-interactive-*` token。
+4. **配置表单底部一排并排**：「标题长度上限（左）｜超时（右）」，复用模型排的
+   `.stp-pair` 布局。
+5. **版本下限语义澄清**：`engines.dsh` / peerDependencies 为
+   `>=0.1.7-rc.1 <0.2.0-0` —— 0.1.7 系列（含 rc 预览版）均可安装，0.2.0 起判
+   不兼容。曾误收 `>=0.1.7`（semver 里 rc < 正式版，会把 rc.1 排除），已改回。
+6. **三张截图实机重拍**：`session-list.png` / `retitle-button.png` /
+   `config-page.png`（原 `settings-card.png` 更名，README 与 screenshots.json
+   同步更新），并删掉「截图待重拍」的过时备注。
+
+**状态**：✅ v0.8.0 实机验证通过（下拉/保存/图标/名称介绍/hover 框全部确认），
+v0.8.1 发版。
+
+### v0.8.0
 
 **适配 dsh 0.1.7-rc.1 的破坏性重构：设置入口搬到插件详情页，删除「隐藏会话」功能。**
 
@@ -122,7 +150,7 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
    根因：官方 `Button ghost sm` 是 36×28 胶囊（r14），系统头部用的是
    Icon_container（28×28）形态，已改为按该几何自绘 + 官方交互 token。
 
-**状态**：🔄 代码完成（typecheck + build 通过），待实机验证后发版。
+**状态**：✅ 已实机验证通过（验证清单 8 项全部确认，见 v0.8.1 小节）。
 
 ### v0.7.6
 
