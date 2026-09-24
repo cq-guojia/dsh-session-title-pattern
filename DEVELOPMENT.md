@@ -11,9 +11,77 @@
 
 ---
 
-## 当前版本：v0.7.6
+## 当前版本：v0.8.0
 
-### v0.7.6（本次）
+### v0.8.0（本次）
+
+**适配 dsh 0.1.7-rc.1 的破坏性重构：设置入口搬到插件详情页，删除「隐藏会话」功能。**
+
+dsh 0.1.7 的破坏面（均从 npm 产物源码逐一核实，非猜测）：`settingsScope` 服务删除、
+`settings.plugin.item` 槽位删除、host 侧 `installSection` / `settings.get` 删除（新
+`SettingsForms` 服务只保留 configure/get/writable/describe 等读写面，设置命名空间由
+entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEditOutlineRegular`；
+`MessageSource` 删除共享的 `plugin` catch-all（各 producer 在自己模块里声明专属 kind）。
+
+**1. 删除「隐藏会话」功能**（[src/client/hidden/](src/client) 四文件全删）。
+
+- 依据：该功能靠 CSS 类名后缀 + React fiber 内部结构识别列表行，上游任何改版即静默
+  失效；dsh 原生已提供会话归档，显示层开关不再有存在价值。
+- 连带删除：九条 locale 词条、三张截图（hidden-*.png）、devDependency
+  `dsh-api-session-controller`、Config 的 `hiddenEnabled` / `hiddenSessions` /
+  `revealHiddenAll` 三字段。旧配置里的残留键由 schema 忽略，不影响加载。
+
+**2. 配置 UI 迁到 `plugins.bundle.config` 槽位**（新建 [config-panel.tsx](src/client/config-panel.tsx)，删除 settings-card.tsx / settings-css.ts）。
+
+- 状态机全部交给官方 `SettingsFormModel`（stage 在共享 ConfigForm 之上，save 原子
+  提交），渲染用官方 `SettingsForm` + `SettingsValueField`，不自绘任何控件。
+- 六个字段：retitleEvery / provider / model / timeoutMs / template / maxBytes。
+  provider / model 从下拉退化为纯文本输入（0.1.7 的简化趋势，模型目录与凭据域定制
+  一并删除）；`maxOutputTokens` / `maxInputBytes` 仍是内部预算，不放出。
+- entry 以 `hooks: { panel: store }` 注入，框架合成 `usePanel` selector hook；
+  保存成功沿用平台 Toast（v0.7.6 口径）。
+- 槽位为 keyed、key 必须与包名逐字相同；`configForms.whileServed` 保证宿主未登记
+  命名空间时详情页不留痕迹。
+
+**3. host 端热更新改造**（[src/host/index.ts](src/host/index.ts)）。
+
+- Config 八个字段全部 `.volatile()`（schemastery ^3.18.4）：设置提交后宿主原位刷新
+  活性引用，**改配置不再需要重载 entry**。运行时形态是 `{ get(): T }`，读取一律经
+  `currentConfig()` 逐字段 `.get()`。
+- 删除 `installSection`（含 setSource/onChange/validate）。0.1.7 没有 validate 钩子，
+  provider / model 成对校验退化为启动时 warn；「配置变化清滚动摘要」改在
+  `generate()` 入口做签名比较（只看影响标题生成的六个字段）。
+- 界面语言读取从 `settings.get('locale')` 改为 `settings.describe()` 里找
+  `ns === 'locale'` 的描述符。
+
+**4. 铅笔图标三行兜底链**（[src/client/index.tsx](src/client/index.tsx)）。
+
+- 不再具名导入：从 primitives 命名空间按名取用
+  `IconEditOutlineRegular ?? IconEditOutline16 ?? 内联 SVG`，都没有就 warn 一次。
+  上游再改名时只是图标退回内联 SVG，按钮不再整块消失（0.1.7 的改名正是这么把
+  v0.7.x 的铅笔弄没的）。
+
+**5. 依赖与清单**（[package.json](package.json)、[cordis.patch.yml](cordis.patch.yml)）。
+
+- devDependencies / peerDependencies 全部升至 0.1.7-rc.1；peer 收紧为
+  `>=0.1.7-rc.1 <0.2.0-0`；schemastery ^3.18.4。
+- `dsh.client.inject` 加 `@deepseek-ai/dsh-client-ui-plugin-manager`（配置槽位契约）、
+  去 `@deepseek-ai/dsh-client-ui-settings-plugins`（包已删除）。
+- [llm.ts](src/host/llm.ts) 按新词汇登记专属消息来源
+  `kind: 'dsh-session-title-pattern'`。
+
+**实机验证清单**：
+
+1. 插件出现在侧边栏「插件」列表的「已安装」分组（前置条件；不在则配置区无从谈起）。
+2. 详情页配置表单出现 → 改一项 → 保存 → Toast → 重进值还在 → 标题按新配置生成，
+   且改 retitleEvery 等字段不清滚动摘要。
+3. 头部铅笔图标正常、重命名面板正常（自动生成 / 锁定 / 解锁）。
+4. 中英语言切换正常（表单文案跟随）。
+5. 旧配置里的 `hiddenSessions` 等残留键不影响加载。
+
+**状态**：🔄 代码完成（typecheck + build 通过），待实机验证后发版。
+
+### v0.7.6
 
 **实机反馈修正（两处交互）：折叠侧边栏时藏掉区域标题行的眼睛、保存后留在原地弹 Toast。**
 

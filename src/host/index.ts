@@ -31,10 +31,11 @@ export const name = 'dsh-session-title-pattern';
 export const inject = ['sessionTitle'] as const;
 
 /**
- * 设置命名空间。必须全小写连字符（否则 `installSection` 抛 `TypeError`）。
- * 客户端半用同一个字面量注册卡片，两边靠它配对。
+ * 设置命名空间：`session-title-pattern`（与本包名一致）。
+ * dsh 0.1.7 起由 settings 服务按 entry 自动登记（旧 installSection 已删除），
+ * 客户端用同一个字面量（`src/client/locales.ts` 的 LOCALE_NS / SETTINGS_NS）
+ * 注册 `plugins.bundle.config` 槽位并读写同一命名空间。
  */
-const SETTINGS_NS = 'session-title-pattern';
 
 /** 手动重算标题的命令名（不含斜杠）。 */
 const RETITLE_COMMAND = 'retitle';
@@ -108,35 +109,23 @@ export interface Config {
   maxOutputTokens: number;
   /** 单次模型调用输入字节上限（滚动摘要的硬预算）。 */
   maxInputBytes: number;
-  /**
-   * 「隐藏会话」的总开关，默认打开。
-   *
-   * 关掉后客户端**整套隐藏功能都不执行**（不注入眼睛、不改任何行的显示），
-   * 但 `hiddenSessions` / `revealHiddenAll` **原样保留** —— 重新打开时还是原来那批
-   * 会话被隐藏着。关掉不是「重置」，只是一段时间内不执行。
-   */
-  hiddenEnabled: boolean;
-  /**
-   * 被用户隐藏的会话 id（插件私有，与平台的「归档」无关）。
-   *
-   * 只影响客户端要不要显示这一行，**不动会话本身**：会话仍在会话列表数据里，
-   * 打开、搜索、命令、标题自动生成全部照常。清空这个数组即全部恢复显示。
-   */
-  hiddenSessions: string[];
-  /**
-   * 「工作区」区域标题行那只眼睛的总开关：是否把被隐藏的会话显示出来。
-   *
-   * 只有这一个开关 —— 曾经做过「按工作区分别覆盖」，实机用起来嫌碎，已去掉。
-   */
-  revealHiddenAll: boolean;
 }
+
+/**
+ * `Config` 全部字段标 `.volatile()` 之后，dsh 解析出的 config 在运行时的真实形态：
+ * 每个字段不是裸值，而是一个**由宿主运行时持有的活性引用**（schemastery 的
+ * `createVolatile`：冻结对象 + `get()`），设置文档每次提交后由宿主原位更新——
+ * 这正是「修改配置不需要重载 entry」的机制。读取一律走 `currentConfig()`。
+ */
+type VolatileConfig = { readonly [K in keyof Config]: { readonly get: () => Config[K] } };
 
 /**
  * 「影响标题生成」的那部分配置的快照。
  *
- * 只有它变化时才该清空滚动摘要（`apply` 里的 `states`）：隐藏 / 显示会话的开关
- * 也写在同一份设置文档里，但它们与标题毫无关系 —— 若照旧一律 `states.clear()`，
- * 用户每点一次眼睛都会把模型逐轮积累的摘要与主线清掉，标题随即被重新归纳一遍。
+ * 只有它变化时才该清空滚动摘要（`generate()` 入口处比较）：配置现在是热更新的
+ * （volatile 字段由宿主原位刷新），没有 installSection 的 onChange 回调可挂，
+ * 所以改在每次 provider 调用入口检测——语义与旧 onChange 一致：只看影响标题
+ * 生成的六个字段，模板 / 长度上限这类「只影响渲染」的改动不清摘要。
  */
 function titleStateSignature(config: Config): string {
   return [
@@ -149,27 +138,35 @@ function titleStateSignature(config: Config): string {
   ].join('\u0000');
 }
 
-export const Config: z<Config> = z.object({
-  template: z.string().default(DEFAULT_TITLE_TEMPLATE),
-  maxBytes: z.number().step(1).min(20).default(80),
+/**
+ * 设置 schema。**刻意不带 `z<Config>` 类型标注**：`.volatile()` 会改变 schema 的
+ * 推导类型，带上标注反而 TS2322；字段与 `Config` 接口的一致性由人工对齐（8 个字段）。
+ *
+ * **每个字段都标 `.volatile()`**（依赖 `@deepseek-ai/schemastery ^3.18.4`）：字段不落
+ * 用户设置文档的持久层之外还由宿主原位热更新——保存后无需重载 entry，滚动摘要
+ * 不丢。也因此读取配置必须逐字段 `.get()`（见 `VolatileConfig` / `currentConfig`）。
+ *
+ * provider 与 model 不再做「必须成对」的跨字段校验（dsh 0.1.7 的 settings 服务没有
+ * validate 钩子）：只填其一时运行时自动整体忽略、跟随会话主模型（`resolveRoute`
+ * 的既有降级），初始时打一条 warn 提醒。
+ */
+export const Config = z.object({
+  template: z.string().default(DEFAULT_TITLE_TEMPLATE).volatile(),
+  maxBytes: z.number().step(1).min(20).default(80).volatile(),
   // min(0)：0 = 不自动重算，只在首条消息时生成一次。
-  retitleEvery: z.number().step(1).min(0).default(10),
-  provider: z.string().default(''),
-  model: z.string().default(''),
+  retitleEvery: z.number().step(1).min(0).default(10).volatile(),
+  provider: z.string().default('').volatile(),
+  model: z.string().default('').volatile(),
   // 90s：推理（thinking）模型的思考计入同一次调用，想完才写标题，本身就可能要
   // 几十秒，再叠加免费档为主会话排队 —— 30s 实测会在「模型其实算得出来」的会话上
   // 超时（TimeoutReason: SESSION_TITLE_TIMEOUT after 30000ms）。
-  timeoutMs: z.number().step(1).min(1).default(90_000),
+  timeoutMs: z.number().step(1).min(1).default(90_000).volatile(),
   // 2048：这一层是「保险丝」，不是给用户调的旋钮 —— 它是服务端的硬切断，到点就停。
   // 思考（reasoning）计入同一个预算：512 对推理模型几乎必然不够，想完就一行可见
   // 文本都没有（实测报过 Title model produced no text）。调大不花钱（上限不是
   // 预扣费，模型真写了才计费），因此界面上不暴露这一项。
-  maxOutputTokens: z.number().step(1).min(1).default(2048),
-  maxInputBytes: z.number().step(1).min(1).default(4096),
-  // 隐藏会话：插件私有的显示层开关，与平台「归档」无关（归档是 host 权威且单向的）。
-  hiddenEnabled: z.boolean().default(true),
-  hiddenSessions: z.array(z.string()).default([]),
-  revealHiddenAll: z.boolean().default(false),
+  maxOutputTokens: z.number().step(1).min(1).default(2048).volatile(),
+  maxInputBytes: z.number().step(1).min(1).default(4096).volatile(),
 });
 
 /**
@@ -272,8 +269,8 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     /**
      * 每次读取当前生效的配置。
      *
-     * 不能在构造时把 config 冻结进字段：设置服务挂上来之后会把来源换成「解析后的
-     * 用户设置」，并在每次提交后替换 —— 冻结了就永远读不到用户在设置页改的值。
+     * 配置字段全部是 volatile 引用，宿主会在每次设置提交后原位更新——读取经过
+     * `currentConfig()` 逐字段 `.get()`，任何时刻拿到的都是最新值。
      */
     private readonly getConfig: () => Config,
     private readonly states: Map<string, SessionState>,
@@ -281,7 +278,19 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     private readonly getLlm: () => LlmService | undefined,
     /** 本次该用哪种语言的类型标签（语言环境优先，拿不到才看对话语言）。 */
     private readonly resolveTypeLang: (messages: readonly SessionTitleUserMessage[]) => TypeLang,
-    ) {}
+    ) {
+    // 初始签名：generate() 入口处与之比较，变化即清滚动摘要。
+    this.lastSignature = titleStateSignature(getConfig());
+  }
+
+    /**
+     * 上一次生成时的「影响标题生成的配置」签名。
+     *
+     * volatile 热更新没有 onChange 回调可挂，改在每次 generate() 入口比较：
+     * 签名变了就清掉全部滚动摘要，让下一次重算按新配置从头积累（与旧
+     * installSection onChange 的 `states.clear()` 同语义）。
+     */
+    private lastSignature: string;
 
     /**
      * 待处理的解锁请求（会话 id 集合）。
@@ -327,6 +336,18 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
     const messageSeqs = request.messages.map((message) => message.seq);
     // 每次调用都读当前生效的配置，而不是构造时冻结的那份。
     const config = this.getConfig();
+    // volatile 热更新没有 onChange 可挂：在生成入口检测配置签名，变了就清滚动摘要，
+    // 让下一轮按新配置重新积累（模型 / 重算间隔换了，旧摘要不再匹配新设置）。
+    const signature = titleStateSignature(config);
+    if (signature !== this.lastSignature) {
+      this.lastSignature = signature;
+      this.states.clear();
+      this.ctx.logger(name).info(
+        `Title settings changed (retitleEvery=${config.retitleEvery}, ` +
+          `provider=${config.provider || '(follow main model)'}, ` +
+          `model=${config.model || '(provider default)'}); rolling summaries cleared`,
+      );
+    }
     // 日期锚点：会话创建时刻。用 `new Date()` 会让前缀随每次重算漂移（见 sessionStartedAt）。
     const createdAt = sessionStartedAt(request.session);
 
@@ -368,7 +389,6 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
       const startedAt = Date.now();
       const { text, route, inputBytes, truncated } = await callTitleModel(
         llm,
-        name,
         config,
         request,
         state,
@@ -559,7 +579,7 @@ function registerPanelCommands(
               signal,
             };
             const typeLang = resolveTypeLang(messages);
-            const { text } = await callTitleModel(llm, name, config, request, scratch, typeLang);
+            const { text } = await callTitleModel(llm, config, request, scratch, typeLang);
             const parsed = parseTitleOutput(text, typeLang);
             return {
               kind: 'success',
@@ -727,15 +747,23 @@ function trackRecomputes(
   });
 }
 
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: VolatileConfig): void {
   const states = new Map<string, SessionState>();
   const logger = ctx.logger(name);
 
-  // 当前生效的配置来源。默认是 cordis 组合里的 entry；设置服务挂上来之后会被换成
-  // 「解析后的用户设置」，并在每次提交后替换。所以所有读取都必须经过这里，
-  // 绝不能把 apply 收到的 config 冻结进闭包。
-  let source: () => Config = () => config;
-  const currentConfig = (): Config => source();
+  // 当前生效的配置来源：volatile 字段由宿主在每次设置提交后**原位更新**，
+  // 所以逐字段 `.get()` 读出来的永远是最新值 —— 既不需要 installSection 的
+  // setSource 换源，也不需要重载 entry（滚动摘要因此不会因改配置而丢）。
+  const currentConfig = (): Config => ({
+    template: config.template.get(),
+    maxBytes: config.maxBytes.get(),
+    retitleEvery: config.retitleEvery.get(),
+    provider: config.provider.get(),
+    model: config.model.get(),
+    timeoutMs: config.timeoutMs.get(),
+    maxOutputTokens: config.maxOutputTokens.get(),
+    maxInputBytes: config.maxInputBytes.get(),
+  });
 
   // llm 绝不能写进 inject 声明：声明式依赖会让本 entry 在缺少该服务的组合里
   // 一直 pending，而 pending 的 entry 会让整个 dsh 启动失败。用 ctx.inject 延迟等待：
@@ -752,7 +780,8 @@ export function apply(ctx: Context, config: Config): void {
    * 用户的语言环境（设置里的语言）。
    *
    * host 侧**没有** locale 服务，但 locale 插件把偏好存进了设置文档的 `locale` 命名空间
-   * （字段 `preference`），而 `ctx.settings.get()` 是公开读取面 —— 所以这里读得到。
+   * （字段 `preference`）。dsh 0.1.7 的 settings 服务只有 `describe()` 这一个读取面
+   * （`get` 已删除），它返回全部已登记命名空间的描述与当前值 —— 从里面找 `locale`。
    * 同样走延迟注入，不能直接写 `ctx.settings`（受保护代理会抛）。
    */
   let settings: Context['settings'] | undefined;
@@ -765,7 +794,11 @@ export function apply(ctx: Context, config: Config): void {
    */
   const getUiLocale = (): TypeLang | undefined => {
     try {
-      const section = settings?.get('locale') as { preference?: unknown } | undefined;
+      const section = settings
+        ?.describe()
+        .find((descriptor) => descriptor.ns === 'locale')?.value as
+        | { preference?: unknown }
+        | undefined;
       const preference = section?.preference;
       return preference === 'zh' || preference === 'en' ? preference : undefined;
     } catch {
@@ -804,47 +837,17 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => dispose);
 
-  // 把本插件的 Config 暴露成用户可编辑的 settings section：设置页的「插件」标签页
-  // 会遍历 host 提供的命名空间，并按命名空间找到我们在浏览器里注册的那张卡片。
-  //
-  // 同样不能直接写 `ctx.settings`（受保护代理），走 ctx.inject 延迟等待。
-  // 上一次「影响标题生成」的配置快照，用来判断这次 onChange 要不要清滚动摘要。
-  let lastTitleSignature = titleStateSignature(config);
-
+  // 设置命名空间的登记在 dsh 0.1.7 里是**自动的**：settings 服务从活跃 entry 的
+  // `Config` 导出派生「Schema-derived plugin configuration forms」（旧 installSection
+  // 已删除），客户端在插件详情页按命名空间读写。这里只需拿到服务本体，给
+  // getUiLocale() 的 describe() 用 —— 同样不能直接写 `ctx.settings`（受保护代理），
+  // 走 ctx.inject 延迟等待。
   ctx.inject(['settings'], (settingsCtx) => {
     settings = settingsCtx.settings;
-    settingsCtx.settings.installSection(ctx, SETTINGS_NS, Config, config, {
-      setSource: (current) => {
-        source = current;
-      },
-      onChange: () => {
-        const next = currentConfig();
-        // 只有影响标题生成的字段变了才清空滚动摘要：换了模型或重算间隔之后，旧摘要
-        // 不再匹配新设置，让下一次重算按新配置从头开始。
-        //
-        // 隐藏 / 显示会话也写在同一份文档里，却不该动滚动状态 —— 否则每次点眼睛
-        // 都会把摘要与主线清掉，标题被重新归纳一遍（见 titleStateSignature）。
-        const signature = titleStateSignature(next);
-        if (signature !== lastTitleSignature) {
-          lastTitleSignature = signature;
-          states.clear();
-        }
-        logger.info(
-          `Settings updated: retitleEvery=${next.retitleEvery}, ` +
-            `hidden ${next.hiddenSessions.length}`,
-        );
-      },
-      validate: (value) => {
-        // schema 表达不了的跨字段约束：provider 与 model 必须成对。
-        // 抛错会拒绝这次写入，用户在设置页立刻收到失败提示。
-        if ((value.provider.length > 0) !== (value.model.length > 0)) {
-          throw new Error('provider and model must be set together, or both left empty');
-        }
-      },
-    });
   });
 
-  // 组合配置（cordis 配置）里只填了一项的情况走不到 validate，这里补一条提示。
+  // provider / model 成对校验已随 0.1.7 移除（settings 服务没有 validate 钩子）。
+  // 只填其一时运行时整体忽略、跟随会话主模型，这里在启动时把这种配置打出来提醒。
   const initial = currentConfig();
   if ((initial.provider.length > 0) !== (initial.model.length > 0)) {
     logger.warn(

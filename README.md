@@ -1,13 +1,14 @@
-# Session title + hidden sessions (session-title-pattern)
+# Session title (session-title-pattern)
 
 English | [中文](README.zh.md)
 
-Two small tools for the dsh sidebar: **titles you can read at a glance**, and **tuck away the sessions you are not using right now**.
+One small tool for the dsh sidebar: **titles you can read at a glance** — which day, what kind of work, what it was about.
 
 ![Session titles in the sidebar](docs/images/session-list.png)
 
 - **Automatic titles** — every title becomes `0913｜排查｜登录失败`: which day, what kind of work, and what it was about, summarized from the **whole conversation** by a model (two Chinese characters for Chinese, one word for English)
-- **Hidden sessions** — put the sessions you are not using away so the sidebar keeps only the recent few; show them all again with one click, and nothing is ever deleted
+
+> **Upgrading from v0.7.x?** The "hidden sessions" feature was **removed in v0.8.0**: it was built on undocumented DOM internals that dsh 0.1.7's redesign made unmaintainable, and the platform's own **archive** is the supported way to keep unused sessions out of the way. Leftover settings keys (`hiddenEnabled`, `hiddenSessions`, `revealHiddenAll`) are ignored and harmless; your titles and the rest of the configuration carry over unchanged.
 
 ## Install
 
@@ -17,7 +18,7 @@ dsh plugin --profile web add dsh-session-title-pattern
 
 Every stable release is published to npm, so it works right after installing — no extra configuration and no local build.
 
-## Feature 1: automatic titles
+## Automatic titles
 
 ### What a title looks like
 
@@ -79,59 +80,22 @@ dsh renders the title as the last breadcrumb segment, and the upstream styleshee
 
 Only the **current session's title** is widened; ancestor sessions and subagent breadcrumbs keep the original width. If upstream renames the class, the rule fails silently (no error — the title just gets short again): select the title element in DevTools and check whether `class` still contains `_crumbCurrent`.
 
-## Feature 2: hidden sessions
-
-dsh offers only "archive" for putting a session away, and it is one-way: getting one back afterwards is painful (the platform states plainly that there is *No Session deletion or unarchive control*).
-
-But plenty of sessions are simply not in use right now — you do not want to delete them, yet they clutter the sidebar. This plugin keeps **its own hidden list**: put the ones you are not using away, keep the sidebar down to the recents, and bring them back with one click whenever you want. Fully reversible.
-
-| | Hidden (this plugin) | Archived (platform) |
-| --- | --- | --- |
-| Scope | Only whether the sidebar shows it | Gone from every grouped view |
-| Reversible | Show it again any time | Getting it back is painful |
-| The session itself | Untouched | Untouched |
-
-### How to use it
-
-**Hide one**: hover a session row and click the **struck-through eye** at the end of the row.
-
-![The hide button on a session row, tooltip "Hide this session"](docs/images/hidden-hide-row.png)
-
-**Bring them back**: click the **eye** to the left of the magnifier in the "Workspaces" header (the master switch); the hidden sessions come back, just **dimmed**; click the eye on an individual row to unhide that one.
-
-![Master switch: show / collapse hidden sessions with one click](docs/images/hidden-toggle-all.png)
-
-![Hidden sessions render dimmed; click the eye to unhide](docs/images/hidden-unhide-row.png)
-
-Both icons mean the same thing: **an eye means "these are showing right now"**. A hidden session row shows an eye (click it to unhide); one that is not hidden shows the struck-through eye. When the master switch is currently revealing hidden sessions it shows an eye, otherwise the struck-through one. Hovering an eye pops its explanation **immediately**.
-
-The session you currently have open is kept visible (so the conversation you are reading does not suddenly "disappear"); it goes away on its own once you switch to another session.
-
-**Turning the whole feature off**: the "**Enable hidden sessions**" switch in the settings card (on by default) takes effect immediately. Off ≠ reset — the hidden list is kept exactly as it was, and re-enabling leaves the same sessions hidden; to really clear it, use "Unhide all" in the card.
-
-### What it is and is not
-
-- Hiding only affects the sidebar: the session stays in the list, and opening, searching, commands, and automatic titles all keep working
-- It **never** deletes a session and never touches the session log; the hidden list lives in this plugin's settings document, so it survives a refresh, a restart, and a different browser
-- Hiding is implemented at the DOM layer (the platform has no extension slot that can filter list rows by session), so an upstream redesign can break it silently — when clicks stop working or sessions will not hide, first check the console for warnings prefixed with `[dsh-session-title-pattern]`; "Unhide all" in the settings card is the always-available way out
-
 ## Configuration
 
 ### Settings UI (recommended)
 
-![Settings panel: recompute interval, model selection, timeout, title format, length limit](docs/images/settings-card.png)
+![Plugin page: the configuration form under the bundle description](docs/images/settings-card.png)
 
-Open dsh's **Settings → Plugins** and find this plugin's card (collapsed by default; click its header row to expand):
+Since dsh 0.1.7 the settings live on the plugin's own page: open the **Plugins** view in the sidebar, find this plugin under **Installed**, and open its detail page — the configuration form sits between the description and the entry rows. (The screenshot above still shows the pre-0.1.7 settings card; it is pending a re-shoot.)
 
 | Item | Meaning |
 | --- | --- |
 | **Recompute every N messages** | Default `10`. `0` = compute once when the session is created |
-| **Model for title summaries** | One row, two dropdowns: the provider on the left (the first entry is "Follow the conversation model") and that provider's **specific model** on the right. Only the providers you configured and that are available are listed |
+| **Model provider** / **Model id** | Since v0.8.0 two plain text fields — set both or neither; empty follows the session's main model |
 | **Timeout** | Raise it when the model is slow (e.g. a free tier queueing) |
 | **Title format** / **Title length limit** | What the three parts look like, and how long the title may get |
-| **Enable hidden sessions** | Master switch for the hidden-sessions feature; takes effect immediately |
 
-Edits are **staged** and written only when you press "Save"; each field marks whether it was **customized**, can be reset on its own, and "**Discard**" at the bottom drops edits you have not saved.
+Edits are **staged** and written only when you press "Save"; each field marks whether it was **customized** and can be reset on its own; leaving the form discards unsaved edits.
 
 > The UI copy is **bilingual** and follows dsh's interface language (Settings → General → Language).
 
@@ -157,9 +121,6 @@ For scripted or bulk deployments:
 | `maxInputBytes` | number | `4096` | Input byte cap for one call |
 | `template` | string | `{MMDD}｜{type}｜{topic}` | Title format template |
 | `maxBytes` | number | `80` | Total title length cap (UTF-8 bytes), minimum 20 |
-| `hiddenEnabled` | boolean | `true` | Master switch for the hidden-sessions feature |
-| `hiddenSessions` | string[] | `[]` | Ids of hidden sessions (written by the eye buttons; no need to type them) |
-| `revealHiddenAll` | boolean | `false` | Whether hidden sessions are currently revealed |
 
 > The `｜` in the default template is a full-width vertical bar (U+FF5C). A placeholder the plugin does not recognize **stays in the title verbatim** (e.g. `{date}`), so a typo in the template is obvious at a glance.
 >
@@ -186,7 +147,7 @@ npm run typecheck
 
 > **`lib/` is a build artefact committed to git** — dsh loads `main` from `package.json` (`lib/index.mjs`) and never compiles TypeScript at runtime. After changing `src/` you must run `npm run build` again and commit `lib/` with it, or the change will not take effect.
 
-Implementation details (the cost model, why hidden sessions can only work at the DOM layer, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
+Implementation details (the cost model, how v0.8.0 wires the configuration form into dsh 0.1.7's plugin-page slot, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
 
 > This README has two languages: this file and [README.zh.md](README.zh.md). **Changing one means changing the other** — the copy readers actually see is the one that counts.
 

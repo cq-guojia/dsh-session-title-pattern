@@ -7,24 +7,31 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-api-remotes/client';
 // ctx.slots 服务的类型增强在 renderer 包里，不在 slots 包里。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-// 官方基础组件与图标。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
-// 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致 ——
-// 图标集有 49 个 `IconXxx16`，侧边栏开关等内置按钮用的就是同一套。
-import { Button, IconEditOutline16, Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
-// settingsScope 的类型增强在设置包自身的 client 入口里。
+// `plugins.bundle.config` 槽位契约（SlotMap 增强）在插件管理页包的 client 入口里。
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
+// ctx.configForms 服务的类型增强在设置包自身的 client 入口里（settingsScope 已随
+// dsh 0.1.7 删除，设置读写统一走共享的 ConfigForm）。
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+// 官方基础组件。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
+// 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致。
+import { Button, Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
+import {
+  SettingsFormModel,
+  settingsNumberField,
+  settingsTextField,
+} from '@deepseek-ai/dsh-client-ui-primitives';
+// 图标必须从命名空间按名取用（见下方 EditIcon 的兜底链），不能具名导入：
+// 上游改名时具名导入在编译期过不了类型、运行时拿到 undefined，React 渲染直接抛错。
+import * as primitives from '@deepseek-ai/dsh-client-ui-primitives';
 // `remote.commands` 的入参是品牌化的 SessionId，不能拿裸 string 顶。
 import type { SessionId } from '@deepseek-ai/dsh-session/types';
 
-import { SETTINGS_NS, SettingsCard } from './settings-card';
-import type { CredentialsFace, LlmDirectory, PluginConfig } from './settings-card';
-import { SETTINGS_CSS, SETTINGS_STYLE_ID } from './settings-css';
-import { injectStyle, removeStyle } from './hidden/dom';
-import { installHiddenSessions } from './hidden/sidebar';
-import { LOCALE_NS, en, fallbackTranslate, zh } from './locales';
-import type { LocaleTranslate } from './locales';
+import { ConfigPanel } from './config-panel';
+import type { PanelState, PluginConfig } from './config-panel';
+import { LOCALE_NS, zh, en } from './locales';
 import { LOG } from './log';
+import { injectStyle, removeStyle } from './style';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -49,6 +56,12 @@ const ACTION_ORDER = -1000;
 
 /** 本菜单项在列表中的地址，必须全局唯一。 */
 const ENTRY_ID = 'generate-title';
+
+/**
+ * 插件详情页配置槽位（dsh 0.1.7）。keyed 槽位，key 必须与包名逐字相同 ——
+ * 插件管理页用 `ledger.bundles.has(pkg.name)` 判断要不要在详情页渲染配置区。
+ */
+const BUNDLE_CONFIG_SLOT = 'plugins.bundle.config';
 
 /**
  * 下面四条是**完整的命令行**，必须带前导斜杠。
@@ -102,6 +115,45 @@ type RemoteCommands = Context['remote']['commands'];
 // 客户端 entry 若声明了当前组合无法满足的依赖，会一直 pending，而 pending 的
 // entry 会让整个 dsh 启动失败。这里改用 apply 内的 ctx.inject() 延迟等待，
 // 依赖没出现的最坏结果只是「没有按钮」。
+
+/**
+ * 铅笔图标的三行防御。
+ *
+ * dsh 0.1.7 把图标集整体改名（`IconEditOutline16` → `IconEditOutlineRegular`），
+ * 缺失的名字在上游模块系统里解析成 undefined，React 渲染直接抛
+ * "Element type is invalid"，**整个头部动作区静默消失** —— v0.8.0 的铅笔就是这么
+ * 没的。所以这里不用具名导入，而是从模块命名空间上**按名取用**并逐级兜底：
+ * 上游再改名时只是图标退回内联 SVG（控制台 warn 一次），按钮不再整块消失。
+ */
+type IconLike = (props: { size?: number }) => React.ReactNode;
+
+const FallbackEditIcon: IconLike = ({ size = 16 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M11.13 2.09a1.56 1.56 0 0 1 2.2 2.2L5.4 12.23l-3.02.9.9-3.02 7.85-8.02z" />
+  </svg>
+);
+
+/**
+ * 三行兜底链：0.1.7 的 `IconEditOutlineRegular` ?? 旧名 `IconEditOutline16` ?? 内联 SVG。
+ * 都没有时只在控制台 warn 一次，按钮照常渲染 —— 宁可图标朴素，绝不整块消失。
+ */
+const EditIcon = ((primitives as unknown as Record<string, unknown>).IconEditOutlineRegular ??
+  (primitives as unknown as Record<string, unknown>).IconEditOutline16 ??
+  FallbackEditIcon) as typeof FallbackEditIcon;
+
+if (EditIcon === FallbackEditIcon) {
+  console.warn(`${LOG} 上游图标导出表里没有铅笔图标，已退回内联 SVG`);
+}
 
 type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   /** 算一版标题草稿：成功时 resolve 出标题文本，失败/不可用 resolve undefined。 */
@@ -242,7 +294,7 @@ function GenerateTitleAction({
           <Button
             variant="ghost"
             size="sm"
-            icon={<IconEditOutline16 size={16} />}
+            icon={<EditIcon size={16} />}
             disabled={running}
             onClick={() => (open ? close() : openPanel())}
             // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
@@ -371,29 +423,19 @@ export function apply(ctx: Context): void {
   // 放在最前面是为了尽早注入，避免标题先按 220px 渲染再跳变。
   ctx.effect(() => {
     installCrumbWidth();
-    // 设置卡片的样式：逐条照抄官方卡片与字段的规则（见 settings-css.ts）。
-    injectStyle(SETTINGS_STYLE_ID, SETTINGS_CSS);
-    return () => {
-      removeStyle(CRUMB_STYLE_ID);
-      removeStyle(SETTINGS_STYLE_ID);
-    };
+    return () => removeStyle(CRUMB_STYLE_ID);
   });
 
   /**
    * 界面文案（中英双语）。
    *
-   * 词典注册与 `bind` 都要等 locale 服务，所以用 `ctx.inject` 延迟等待 ——
-   * 绝不能写进模块级注入声明：组合里缺它会让整个客户端 entry 一直 pending。
-   * 服务就位之前，DOM 层用内置中文词典兜底（`fallbackTranslate`），不会渲染出空串。
+   * 词典注册要等 locale 服务，所以用 `ctx.inject` 延迟等待 —— 绝不能写进模块级
+   * 注入声明：组合里缺它会让整个客户端 entry 一直 pending。React 组件的 `t` 由
+   * 框架经槽位的 `locale: LOCALE_NS` 声明注入，语言切换自动重渲。
    */
-  let t: LocaleTranslate = fallbackTranslate;
   ctx.inject(['locale'], (localeCtx) => {
-    const locale = localeCtx.locale;
-    ctx.effect(() => locale.register(LOCALE_NS, { zh, en }));
-    t = locale.bind(LOCALE_NS);
+    ctx.effect(() => localeCtx.locale.register(LOCALE_NS, { zh, en }));
   });
-  /** DOM 层不在 React 里，每趟 decorate 现取当前翻译函数。 */
-  const getT = (): LocaleTranslate => t;
 
   // remote 命名空间的挂载可能晚于 slot 注册，所以不能提前闭包捕获 ——
   // 提前捕获会拿到 undefined，表现为「按钮在但点了没反应」。
@@ -535,53 +577,61 @@ export function apply(ctx: Context): void {
     console.info(`${LOG} 已注册重命名面板到 ${SLOT}`);
   });
 
-  // 模型目录：provider 列表与每个 provider 已配置的模型都来自 llm 远端命名空间
-  // 加设置镜像。拿不到就只是「两行退回文本输入」，不影响其它配置。
-  let llmDirectory: LlmDirectory | undefined;
-  ctx.inject(['remote', 'remote.llm'], (sub) => {
-    llmDirectory = sub.remote.llm as unknown as LlmDirectory;
-  });
-
-  // 凭据域：用来判断「这个供应商的 key 到底配没配」。命名空间由部署侧组合提供，
-  // 拿不到就只是退化成「只看设置文档的用户层」，不影响其它功能。
-  let credentialsFace: CredentialsFace | undefined;
-  ctx.inject(['remote', 'remote.credentials'], (sub) => {
-    credentialsFace = (sub.remote as unknown as Record<string, CredentialsFace | undefined>).credentials;
-  });
-
-  // 设置卡片：host 半用同一个命名空间注册 settings section，这里按命名空间注册卡片，
-  // 设置页的「插件」标签页会遍历已服务的命名空间并自动配对渲染。
-  ctx.inject(['slots', 'settingsScope'], (sub) => {
-    const scope = sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS });
-    const describe = sub.settingsScope.describe();
-    sub.slots.inject('settings.plugin.item', () =>
-      sub.slots.register(
-        {
-          name: 'settings.plugin.item',
-          // keyed 槽位用 key 声明本条贡献给哪个命名空间（list 才是 id/order）。
-          key: SETTINGS_NS,
-          locale: LOCALE_NS,
-          inject: () => ({
-            scope,
-            describe,
-            getLlm: () => llmDirectory,
-            getCredentials: () => credentialsFace,
-          }),
-        },
-        SettingsCard,
+  // 插件详情页的配置表单（dsh 0.1.7：设置入口从对话侧边栏搬到了这里）。
+  //
+  // 状态机全部交给官方 `SettingsFormModel`：它 stage 在官方共享的 ConfigForm
+  // （`ctx.configForms.get(ns)`）之上，save 一次性原子提交；这里只负责把投影与
+  // 动作接进槽位组件。`whileServed` 保证宿主没登记这个命名空间时（比如 entry 被
+  // 禁用）详情页不留任何痕迹；`slots.inject` 等 owner 声明槽位。
+  ctx.inject(['slots', 'locale', 'configForms'], (sub) => {
+    const model = new SettingsFormModel<PluginConfig>(
+      sub.configForms.get<PluginConfig>(LOCALE_NS),
+      [
+        settingsNumberField('retitleEvery'),
+        settingsTextField('provider'),
+        settingsTextField('model'),
+        settingsNumberField('timeoutMs'),
+        settingsTextField('template'),
+        settingsNumberField('maxBytes'),
+      ],
+    );
+    /** 卡片级状态 + 六个字段的控件态，一次投影全量发布。 */
+    const store = model.bind<PanelState>(() => ({
+      ...model.shell(),
+      retitleEvery: model.field('retitleEvery'),
+      provider: model.field('provider'),
+      model: model.field('model'),
+      timeoutMs: model.field('timeoutMs'),
+      template: model.field('template'),
+      maxBytes: model.field('maxBytes'),
+    }));
+    const actions = model.actions();
+    ctx.effect(() => () => model.dispose());
+    ctx.effect(() =>
+      sub.configForms.whileServed([LOCALE_NS], () =>
+        sub.slots.inject(BUNDLE_CONFIG_SLOT, () =>
+          sub.slots.register(
+            {
+              name: BUNDLE_CONFIG_SLOT,
+              // keyed 槽位：key 必须与包名逐字相同。
+              key: name,
+              locale: LOCALE_NS,
+              inject: () => ({
+                hooks: { panel: store },
+                // 包一层把「是否真的落地」带给组件：成功弹平台 Toast（v0.7.6 口径），
+                // 失败由 SettingsForm 自带的 saveFailed 文案说明（草稿保留）。
+                save: () =>
+                  model.save().then(() => !model.shell().failed),
+                edit: actions.edit,
+                resetField: actions.resetField,
+                discard: actions.discard,
+              }),
+            },
+            ConfigPanel,
+          ),
+        ),
       ),
     );
-    console.info(`${LOG} 已注册设置卡片到 settings.plugin.item（${SETTINGS_NS}）`);
-  });
-
-  // 隐藏会话：把自己维护的隐藏列表落到侧边栏的行上（详见 hidden/sidebar.ts）。
-  // 走 settingsScope 绑到与设置卡片**同一个命名空间** —— DOM 层不在 React 里，
-  // 用不了卡片那套 props，只能靠这个面读写同一份设置文档。
-  ctx.inject(['settingsScope'], (sub) => {
-    installHiddenSessions(
-      sub,
-      sub.settingsScope.bind<PluginConfig>({ namespace: SETTINGS_NS }),
-      getT,
-    );
+    console.info(`${LOG} 已注册配置表单到 ${BUNDLE_CONFIG_SLOT}（${LOCALE_NS}）`);
   });
 }

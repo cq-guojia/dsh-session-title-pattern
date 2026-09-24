@@ -8,6 +8,17 @@ import type {
 } from '@deepseek-ai/dsh-session-title';
 import type { Context } from '@deepseek-ai/cordis';
 
+/**
+ * dsh 0.1.7 起 `MessageSource` 不再有共享的 `plugin` catch-all：每个 producer
+ * 在自己的模块里声明专属 kind（merge-extensible，user 消息可携带任何 producer
+ * 的 kind，消费方对未知 kind 直接略过）。这里登记本插件注入的标题生成提示。
+ */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-session-title-pattern': { kind: 'dsh-session-title-pattern' };
+  }
+}
+
 /** 超时原因码，自己拥有（服务的 maxTitleBytes / dsh-base 不涉及）。 */
 export const TIMEOUT_CODE = 'SESSION_TITLE_TIMEOUT';
 
@@ -406,7 +417,6 @@ export function resolveRoute(settings: LlmSettings, request: SessionTitleProvide
  */
 export async function callTitleModel(
   llm: LlmService,
-  pluginName: string,
   settings: LlmSettings,
   request: SessionTitleProviderRequest,
   state: RollState,
@@ -425,7 +435,7 @@ export async function callTitleModel(
       messages: [
         createUserMessage({
           content: [{ type: 'text', text: input }],
-          source: { kind: 'plugin', plugin: pluginName },
+          source: { kind: 'dsh-session-title-pattern' },
         }),
       ],
       system: systemPrompt(typeLang),

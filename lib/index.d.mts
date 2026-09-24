@@ -44,29 +44,47 @@ export interface Config {
   maxOutputTokens: number;
   /** 单次模型调用输入字节上限（滚动摘要的硬预算）。 */
   maxInputBytes: number;
-  /**
-   * 「隐藏会话」的总开关，默认打开。
-   *
-   * 关掉后客户端**整套隐藏功能都不执行**（不注入眼睛、不改任何行的显示），
-   * 但 `hiddenSessions` / `revealHiddenAll` **原样保留** —— 重新打开时还是原来那批
-   * 会话被隐藏着。关掉不是「重置」，只是一段时间内不执行。
-   */
-  hiddenEnabled: boolean;
-  /**
-   * 被用户隐藏的会话 id（插件私有，与平台的「归档」无关）。
-   *
-   * 只影响客户端要不要显示这一行，**不动会话本身**：会话仍在会话列表数据里，
-   * 打开、搜索、命令、标题自动生成全部照常。清空这个数组即全部恢复显示。
-   */
-  hiddenSessions: string[];
-  /**
-   * 「工作区」区域标题行那只眼睛的总开关：是否把被隐藏的会话显示出来。
-   *
-   * 只有这一个开关 —— 曾经做过「按工作区分别覆盖」，实机用起来嫌碎，已去掉。
-   */
-  revealHiddenAll: boolean;
 }
-export declare const Config: z<Config>;
-export declare function apply(ctx: Context, config: Config): void;
+/**
+ * `Config` 全部字段标 `.volatile()` 之后，dsh 解析出的 config 在运行时的真实形态：
+ * 每个字段不是裸值，而是一个**由宿主运行时持有的活性引用**（schemastery 的
+ * `createVolatile`：冻结对象 + `get()`），设置文档每次提交后由宿主原位更新——
+ * 这正是「修改配置不需要重载 entry」的机制。读取一律走 `currentConfig()`。
+ */
+type VolatileConfig = { readonly [K in keyof Config]: {
+  readonly get: () => Config[K];
+}; };
+/**
+ * 设置 schema。**刻意不带 `z<Config>` 类型标注**：`.volatile()` 会改变 schema 的
+ * 推导类型，带上标注反而 TS2322；字段与 `Config` 接口的一致性由人工对齐（8 个字段）。
+ *
+ * **每个字段都标 `.volatile()`**（依赖 `@deepseek-ai/schemastery ^3.18.4`）：字段不落
+ * 用户设置文档的持久层之外还由宿主原位热更新——保存后无需重载 entry，滚动摘要
+ * 不丢。也因此读取配置必须逐字段 `.get()`（见 `VolatileConfig` / `currentConfig`）。
+ *
+ * provider 与 model 不再做「必须成对」的跨字段校验（dsh 0.1.7 的 settings 服务没有
+ * validate 钩子）：只填其一时运行时自动整体忽略、跟随会话主模型（`resolveRoute`
+ * 的既有降级），初始时打一条 warn 提醒。
+ */
+export declare const Config: z<Schemastery.ObjectS<NoInfer<{
+  template: z<string, string, "volatile-defined">;
+  maxBytes: z<number, number, "volatile-defined">;
+  retitleEvery: z<number, number, "volatile-defined">;
+  provider: z<string, string, "volatile-defined">;
+  model: z<string, string, "volatile-defined">;
+  timeoutMs: z<number, number, "volatile-defined">;
+  maxOutputTokens: z<number, number, "volatile-defined">;
+  maxInputBytes: z<number, number, "volatile-defined">;
+}>>, Schemastery.ObjectT<NoInfer<{
+  template: z<string, string, "volatile-defined">;
+  maxBytes: z<number, number, "volatile-defined">;
+  retitleEvery: z<number, number, "volatile-defined">;
+  provider: z<string, string, "volatile-defined">;
+  model: z<string, string, "volatile-defined">;
+  timeoutMs: z<number, number, "volatile-defined">;
+  maxOutputTokens: z<number, number, "volatile-defined">;
+  maxInputBytes: z<number, number, "volatile-defined">;
+}>>, "plain">;
+export declare function apply(ctx: Context, config: VolatileConfig): void;
 //#endregion
 //# sourceMappingURL=index.d.mts.map
