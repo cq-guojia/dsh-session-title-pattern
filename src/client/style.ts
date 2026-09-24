@@ -28,22 +28,19 @@ export const PAIR_STYLE_ID = 'dsh-session-title-pattern-pair-css';
 export const ICONBTN_STYLE_ID = 'dsh-session-title-pattern-iconbtn-css';
 
 /**
- * 头部铅笔按钮：照官方会话内 icon-only 按钮的几何自绘。
+ * 头部铅笔按钮：逐字照抄 better-sidebar 的 `.toggleButton`
+ * （DSH-better-sidebar src/client/sidebar.module.css）。
  *
- * 28×28、`border-radius:999px`（正圆）取自官方 `_7yHdaG_action`
- * （dsh-client-ui-conversation）；hover 用官方同一枚 token，disabled 透明度
- * `.45` 同出处。静止色 / hover 提色取自 better-sidebar 的 `.toggleButton`，
- * 那一版是照官方观感校准过的。
- *
- * `corner-shape: round` 必须写：这里有全局 superellipse 下发
- * （官方 `Switch.module.css` 注释），不显式 opt out 圆角会被改形。
+ * 它实机 hover 底就是官方那种「大弧线」观感，写法是 `border-radius: 50%`
+ * 且不声明 corner-shape —— 全局 superellipse 由此作用于四个角，50% 半径
+ * 四角相接正好拼出一个超椭圆。不能写 `999px`（会被按满圆豁免成纯圆，
+ * 实机已踩），也不能写 `corner-shape: round`（同样退回纯圆）。
  */
 export const ICONBTN_CSS = `
-.stp-iconBtn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:999px;corner-shape:round;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.stp-iconBtn{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out),color var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
 .stp-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.stp-iconBtn:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}
-.stp-iconBtn:focus-visible{outline:2px solid var(--dsw-alias-label-tertiary);outline-offset:-2px}
-.stp-iconBtn:disabled{cursor:not-allowed;opacity:.45}
+.stp-iconBtn:disabled{opacity:.4;cursor:default}
+.stp-iconBtn:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}
 `;
 
 /**
