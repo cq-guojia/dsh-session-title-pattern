@@ -29,9 +29,11 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types';
 
 import { ConfigPanel } from './config-panel';
 import type { PanelState, PluginConfig } from './config-panel';
+import { DirectoryStore } from './model-pair';
+import type { LlmDirectory } from './model-pair';
 import { LOCALE_NS, zh, en } from './locales';
 import { LOG } from './log';
-import { injectStyle, removeStyle } from './style';
+import { injectStyle, removeStyle, PAIR_STYLE_ID, PAIR_CSS } from './style';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -423,7 +425,24 @@ export function apply(ctx: Context): void {
   // 放在最前面是为了尽早注入，避免标题先按 220px 渲染再跳变。
   ctx.effect(() => {
     installCrumbWidth();
-    return () => removeStyle(CRUMB_STYLE_ID);
+    // 「供应商 + 模型」一行两个下拉的样式（配置表单用）。
+    injectStyle(PAIR_STYLE_ID, PAIR_CSS);
+    return () => {
+      removeStyle(CRUMB_STYLE_ID);
+      removeStyle(PAIR_STYLE_ID);
+    };
+  });
+
+  /**
+   * 模型目录 store（配置表单的 provider / model 下拉数据源）。
+   *
+   * 两组服务（`remote.llm` 与设置镜像 face）就绪时序不定，DirectoryStore.load()
+   * 两阶段喂参数，齐了自动加载一次。0.1.7 没有凭据域远端（remote 命名空间表里
+   * 已无 credentials），目录只按设置文档判定，界面文案已说明口径。
+   */
+  const directoryStore = new DirectoryStore();
+  ctx.inject(['remote', 'remote.llm'], (sub) => {
+    directoryStore.load(sub.remote.llm as unknown as LlmDirectory);
   });
 
   /**
@@ -584,6 +603,8 @@ export function apply(ctx: Context): void {
   // 动作接进槽位组件。`whileServed` 保证宿主没登记这个命名空间时（比如 entry 被
   // 禁用）详情页不留任何痕迹；`slots.inject` 等 owner 声明槽位。
   ctx.inject(['slots', 'locale', 'configForms'], (sub) => {
+    // 设置镜像 face：目录加载要读各 provider 的设置文档（profile.models）。
+    directoryStore.load(undefined, sub.configForms.describe());
     const model = new SettingsFormModel<PluginConfig>(
       sub.configForms.get<PluginConfig>(LOCALE_NS),
       [
@@ -617,7 +638,7 @@ export function apply(ctx: Context): void {
               key: name,
               locale: LOCALE_NS,
               inject: () => ({
-                hooks: { panel: store },
+                hooks: { panel: store, directory: directoryStore },
                 // 包一层把「是否真的落地」带给组件：成功弹平台 Toast（v0.7.6 口径），
                 // 失败由 SettingsForm 自带的 saveFailed 文案说明（草稿保留）。
                 save: () =>

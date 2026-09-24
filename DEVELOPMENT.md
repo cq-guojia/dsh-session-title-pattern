@@ -34,12 +34,13 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
 **2. 配置 UI 迁到 `plugins.bundle.config` 槽位**（新建 [config-panel.tsx](src/client/config-panel.tsx)，删除 settings-card.tsx / settings-css.ts）。
 
 - 状态机全部交给官方 `SettingsFormModel`（stage 在共享 ConfigForm 之上，save 原子
-  提交），渲染用官方 `SettingsForm` + `SettingsValueField`，不自绘任何控件。
+  提交），渲染用官方 `SettingsForm` + `SettingsValueField`。
 - 六个字段：retitleEvery / provider / model / timeoutMs / template / maxBytes。
-  provider / model 从下拉退化为纯文本输入（0.1.7 的简化趋势，模型目录与凭据域定制
-  一并删除）；`maxOutputTokens` / `maxInputBytes` 仍是内部预算，不放出。
-- entry 以 `hooks: { panel: store }` 注入，框架合成 `usePanel` selector hook；
-  保存成功沿用平台 Toast（v0.7.6 口径）。
+  provider / model 由 [model-pair.tsx](src/client/model-pair.tsx) 渲染成
+  「标题总结大模型」一排的两个下拉（见第 6 条）；`maxOutputTokens` / `maxInputBytes`
+  仍是内部预算，不放出。
+- entry 以 `hooks: { panel: store, directory: directoryStore }` 注入，框架合成
+  `usePanel` / `useDirectory` selector hook；保存成功沿用平台 Toast（v0.7.6 口径）。
 - 槽位为 keyed、key 必须与包名逐字相同；`configForms.whileServed` 保证宿主未登记
   命名空间时详情页不留痕迹。
 
@@ -70,6 +71,25 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
 - [llm.ts](src/host/llm.ts) 按新词汇登记专属消息来源
   `kind: 'dsh-session-title-pattern'`。
 
+**6. 实机反馈：provider / model 恢复为双下拉，一行两个**（[src/client/model-pair.tsx](src/client/model-pair.tsx)）。
+
+用户原话：「这个不能选择了吗？？为什么是填写了？」「放一排，一个左边，一个右边，不是要
+自己写样式，就是原本有没有样子支持这样的」。0.1.7 官方 settings-form 只有文本 / 数字 /
+密钥三种字段控件、没有下拉，首轮实施据此退化成文本框，被实机否决。恢复方案：
+
+- 下拉用官方 `Menu` 原语组合（受控 open / anchor / items / selectedId / onSelect），
+  草稿仍走 `edit()` 进官方 `SettingsFormModel`，状态机一行不自己管；Menu 没有
+  disabled prop，禁用落在触发按钮上。
+- 目录数据：远端 `llm/listProviders` + `llm/listConfigurableProviders`，模型列表从
+  设置镜像 `configForms.describe()` 读各供应商 profile 的 `models`。0.1.7 remote
+  命名空间已无 credentials，判定口径只看设置文档用户层写过没有，界面上用
+  `credentialsUnknown` 文案说明（宁缺勿滥，同 v0.7.6 凭据域读不到时的方向）。
+- `DirectoryStore` 两阶段喂参（`remote.llm` 与 `configForms` 就绪时序不定，齐了才
+  加载一次，幂等）；loading / unavailable 退回两个文本框（v0.7.6 同款 fail-safe）。
+- 官方没有「一排两个」布局原语，用 flex + 官方 token 拼（`.stp-pair`，样式注入走
+  `style.ts` 的 PAIR_CSS）；选厂家时模型自动落到第一个（保存入口前补解析，显示上
+  从不自动补值 —— 不挂「未保存」，v0.7.6 踩过的坑）。
+
 **实机验证清单**：
 
 1. 插件出现在侧边栏「插件」列表的「已安装」分组（前置条件；不在则配置区无从谈起）。
@@ -78,6 +98,9 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
 3. 头部铅笔图标正常、重命名面板正常（自动生成 / 锁定 / 解锁）。
 4. 中英语言切换正常（表单文案跟随）。
 5. 旧配置里的 `hiddenSessions` 等残留键不影响加载。
+6. 「标题总结大模型」一排出现两个下拉且只含已配置的供应商；选厂家后模型自动落到
+   第一个；保存 → 重进值还在；改语言下拉文案跟随；目录读不到时退回两个文本框并
+   显示原因。
 
 **状态**：🔄 代码完成（typecheck + build 通过），待实机验证后发版。
 

@@ -19,8 +19,15 @@ export type SessionTitlePatternLocaleKey =
   // 配置表单（插件详情页）
   | 'retitleEveryLabel'
   | 'retitleEveryHint'
-  | 'providerLabel'
-  | 'modelLabel'
+  | 'modelPairLabel'
+  | 'followMainModel'
+  | 'notInList'
+  | 'providerSelectAria'
+  | 'modelSelectAria'
+  | 'loadingDirectory'
+  | 'directoryUnavailable'
+  | 'credentialsUnknown'
+  | 'pairBlocked'
   | 'providerPlaceholder'
   | 'modelPlaceholder'
   | 'timeoutLabel'
@@ -62,8 +69,15 @@ export const zh: Record<SessionTitlePatternLocaleKey, string> = {
   retitleEveryLabel: '每隔几条对话重算一次',
   retitleEveryHint:
     '0 = 只在新建会话时算一次，之后不自动更新（可随时点标题旁的按钮手动重算）',
-  providerLabel: '总结标题的供应商',
-  modelLabel: '总结标题的模型',
+  modelPairLabel: '标题总结大模型',
+  followMainModel: '跟随对话模型',
+  notInList: '{id}（不在已配置列表）',
+  providerSelectAria: '用哪家的模型总结标题',
+  modelSelectAria: '用哪个模型总结标题',
+  loadingDirectory: '正在读取模型目录…',
+  directoryUnavailable: '未能读取已配置的模型列表（{reason}），这两个框已退回手动输入',
+  credentialsUnknown: '列表只按设置文档判断，可能多列出没配好的供应商',
+  pairBlocked: '这家下面没有可选模型，请换一家，或先到「模型」设置里给它配上模型',
   providerPlaceholder: '供应商 id，如 deepseek；留空跟随对话模型',
   modelPlaceholder: '模型 id；留空用厂家默认',
   timeoutLabel: '超时',
@@ -103,8 +117,18 @@ export const en: Record<SessionTitlePatternLocaleKey, string> = {
   retitleEveryHint:
     '0 = compute once when the session is created and never again automatically ' +
     '(use the button next to the title any time to recompute manually)',
-  providerLabel: 'Provider for title summaries',
-  modelLabel: 'Model for title summaries',
+  modelPairLabel: 'Model for title summaries',
+  followMainModel: 'Follow the conversation model',
+  notInList: '{id} (not in the configured list)',
+  providerSelectAria: 'Which provider summarizes the title',
+  modelSelectAria: 'Which model summarizes the title',
+  loadingDirectory: 'Loading the model directory…',
+  directoryUnavailable:
+    'Could not read the configured model list ({reason}); these two fields fall back to manual input',
+  credentialsUnknown:
+    'The list is derived from the settings document alone and may include providers that are not configured',
+  pairBlocked:
+    'This provider has no selectable models; pick another provider, or add models to it in the Models settings first',
   providerPlaceholder: 'Provider id, e.g. deepseek; empty follows the conversation model',
   modelPlaceholder: 'Model id; empty uses the provider default',
   timeoutLabel: 'Timeout',

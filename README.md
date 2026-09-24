@@ -91,7 +91,7 @@ Since dsh 0.1.7 the settings live on the plugin's own page: open the **Plugins**
 | Item | Meaning |
 | --- | --- |
 | **Recompute every N messages** | Default `10`. `0` = compute once when the session is created |
-| **Model provider** / **Model id** | Since v0.8.0 two plain text fields — set both or neither; empty follows the session's main model |
+| **Model for title summaries** (provider / model) | Two dropdowns on one row: pick a provider on the left (first item "follow the chat model" = empty follows the session's main model), then a model on the right — selecting a provider auto-picks its first model. Options come from providers you have configured; falls back to two text fields when the directory is unavailable |
 | **Timeout** | Raise it when the model is slow (e.g. a free tier queueing) |
 | **Title format** / **Title length limit** | What the three parts look like, and how long the title may get |
 
