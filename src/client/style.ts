@@ -28,17 +28,22 @@ export const PAIR_STYLE_ID = 'dsh-session-title-pattern-pair-css';
 export const ICONBTN_STYLE_ID = 'dsh-session-title-pattern-iconbtn-css';
 
 /**
- * 头部铅笔按钮：对齐官方头部的图标按钮形态（figma Icon_container 28×28）。
+ * 头部铅笔按钮：照官方会话内 icon-only 按钮的几何自绘。
  *
- * 官方 `Button ghost sm` 是 36×28 的胶囊（r14），比系统头部按钮宽一圈、圆角大一档，
- * hover 框看起来「又大又蠢」（实机反馈）。这里按 Icon_container 的几何自己写：
- * 28×28 方形、8px 圆角，hover/active 用官方交互 token，与系统按钮完全一致。
+ * 28×28、`border-radius:999px`（正圆）取自官方 `_7yHdaG_action`
+ * （dsh-client-ui-conversation）；hover 用官方同一枚 token，disabled 透明度
+ * `.45` 同出处。静止色 / hover 提色取自 better-sidebar 的 `.toggleButton`，
+ * 那一版是照官方观感校准过的。
+ *
+ * `corner-shape: round` 必须写：这里有全局 superellipse 下发
+ * （官方 `Switch.module.css` 注释），不显式 opt out 圆角会被改形。
  */
 export const ICONBTN_CSS = `
-.stp-iconBtn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
-.stp-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.stp-iconBtn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:999px;corner-shape:round;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.stp-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .stp-iconBtn:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}
-.stp-iconBtn:disabled{cursor:not-allowed;opacity:.4}
+.stp-iconBtn:focus-visible{outline:2px solid var(--dsw-alias-label-tertiary);outline-offset:-2px}
+.stp-iconBtn:disabled{cursor:not-allowed;opacity:.45}
 `;
 
 /**

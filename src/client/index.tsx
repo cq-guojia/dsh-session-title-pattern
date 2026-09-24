@@ -294,7 +294,7 @@ function GenerateTitleAction({
       <Tooltip label={t('renameTitle')} side="bottom" delayMs={500}>
         <span style={{ display: 'inline-flex' }}>
           {/* 不用官方 Button：ghost sm 是 36×28 胶囊（r14），比系统头部按钮宽一圈。
-              这里按官方 Icon_container（28×28、r8）自绘，hover/active 用同一组 token。 */}
+              几何与形状语义都在 style.ts 的 ICONBTN_CSS 里，改样式去那里。 */}
           <button
             type="button"
             className="stp-iconBtn"
