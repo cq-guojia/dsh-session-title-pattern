@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSyncExternalStore } from 'react';
-import { Switch } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Switch, Toast } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 // 仅为拿到 `settings.plugin.item` 槽位与 settingsScope 的类型声明。
@@ -430,12 +430,26 @@ export function SettingsCard({
   const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
-  // 默认折叠。官方卡片同样默认收起，且**保存成功后自动收起**。
+  // 默认折叠。官方卡片同样默认收起；保存成功后这里**不**跟着收起（用户要求留在原地），
+  // 只给一条「已保存」的轻提示。
   const [expanded, setExpanded] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [directory, setDirectory] = useState<DirectoryState>({ status: 'loading' });
+  /**
+   * 保存成功的轻提示，走平台自带的 `Toast`（顶部横幅，自动淡出，挂在 body portal 上）。
+   *
+   * 与官方 `InputBar` 同一套模式：按 seq 计数发新的一条（连存两次也能重启淡出周期），
+   * `onDone` 淡出完了才卸载。
+   */
+  const [toast, setToast] = useState<{ seq: number; text: string } | null>(null);
+  const toastSeq = useRef(0);
+  const showToast = useCallback((text: string): void => {
+    toastSeq.current += 1;
+    setToast({ seq: toastSeq.current, text });
+  }, []);
+  const dismissToast = useCallback((): void => setToast(null), []);
   /**
    * 「启用隐藏会话」的本地乐观值。
    *
@@ -603,8 +617,8 @@ export function SettingsCard({
         }
       }
       setDrafts({});
-      // 与官方一致：保存成功后自动收起。
-      setExpanded(false);
+      // 不自动收起（用户要求）：留在原地继续编辑，只给一条轻提示确认「已保存」。
+      showToast(t('saveSuccess'));
     } catch {
       // 草稿保留，用户可以改完再存一次，而不是重打一遍。
       setFailed(true);
@@ -939,6 +953,7 @@ export function SettingsCard({
           </div>
         </div>
       ) : null}
+      {toast !== null ? <Toast key={toast.seq} text={toast.text} onDone={dismissToast} /> : null}
     </li>
   );
 }

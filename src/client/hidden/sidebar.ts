@@ -153,30 +153,32 @@ export function installHiddenSessions(
   /**
    * 「工作区」区域标题行上的总开关（一键全显 / 全隐）。
    *
-   * 位置：放大镜**左边**。宽态下放大镜在 `_searchSlot` 里，插到它前面即可；
-   * 折叠成图标栏（rail）时上游不渲染 `_searchSlot`，放大镜还移出了标题行
-   * （成了它的兄弟节点），插不过去 —— 降级为挂在标题行末尾（「+」旁边）。
+   * 位置：放大镜**左边**。宽态下放大镜在 `_searchSlot` 里，插到它前面即可。
+   * 折叠成图标栏（rail）时上游不渲染 `_searchSlot`，标题行窄到容不下第二只常显
+   * 按钮（用户要求收起时干脆把眼睛藏起来）：此时把已注入的眼睛摘下来，展宽后
+   * 下一趟 decorate 会重新装上。
    */
   const ensureHeaderEye = (root: HTMLElement, config: HiddenConfig): void => {
     const header = root.querySelector<HTMLElement>(bySuffix('sectionHeader'));
     if (header === null) return;
 
     const slot = header.querySelector<HTMLElement>(bySuffix('searchSlot'));
+    // `_searchSlot` 不在 = 折叠态（上游只在宽态渲染它）。
+    if (slot === null) {
+      eyeIn(header, 'header')?.remove();
+      return;
+    }
+
     let eye = eyeIn(header, 'header');
     if (eye === null) eye = createEye('header', onHeaderEye);
-
-    if (slot === null) {
-      if (eye.parentElement !== header) header.append(eye);
-    } else {
-      // 被 React 挤掉 / 挤歪了就重插一次（两者都不在原点时才发现）。
-      if (eye.parentElement !== header || eye.nextElementSibling !== slot) {
-        header.insertBefore(eye, slot);
-      }
-      // 必须**紧贴**放大镜：`_searchSlot` 自带 `margin-left:auto`，而两个 auto 外边距
-      // 会把剩余空间平分（眼睛就被挤到中间去了），所以把那个 auto 让给我们的眼睛。
-      if (slot.style.marginLeft !== '0px') slot.style.marginLeft = '0px';
-      if (eye.style.marginLeft !== 'auto') eye.style.marginLeft = 'auto';
+    // 被 React 挤掉 / 挤歪了就重插一次（两者都不在原点时才发现）。
+    if (eye.parentElement !== header || eye.nextElementSibling !== slot) {
+      header.insertBefore(eye, slot);
     }
+    // 必须**紧贴**放大镜：`_searchSlot` 自带 `margin-left:auto`，而两个 auto 外边距
+    // 会把剩余空间平分（眼睛就被挤到中间去了），所以把那个 auto 让给我们的眼睛。
+    if (slot.style.marginLeft !== '0px') slot.style.marginLeft = '0px';
+    if (eye.style.marginLeft !== 'auto') eye.style.marginLeft = 'auto';
 
     const revealing = config.revealHiddenAll;
     const t = getT();

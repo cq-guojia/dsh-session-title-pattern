@@ -51,6 +51,7 @@ export type SessionTitlePatternLocaleKey =
   | 'rescueAll'
   | 'discard'
   | 'save'
+  | 'saveSuccess'
   | 'unsaved'
   | 'unsavedTip'
   | 'saveFailed'
@@ -120,6 +121,7 @@ export const zh: Record<SessionTitlePatternLocaleKey, string> = {
   rescueAll: '全部取消隐藏',
   discard: '放弃修改',
   save: '保存',
+  saveSuccess: '已保存',
   unsaved: '未保存',
   unsavedTip: '未保存：{fields}',
   saveFailed: '保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）',
@@ -193,6 +195,7 @@ export const en: Record<SessionTitlePatternLocaleKey, string> = {
   rescueAll: 'Unhide all',
   discard: 'Discard',
   save: 'Save',
+  saveSuccess: 'Saved',
   unsaved: 'Unsaved',
   unsavedTip: 'Unsaved: {fields}',
   saveFailed:
