@@ -24,6 +24,23 @@ export function removeStyle(id: string): void {
 /** 「供应商 + 模型」一行两个下拉的样式注入 id（判重防叠加）。 */
 export const PAIR_STYLE_ID = 'dsh-session-title-pattern-pair-css';
 
+/** 头部铅笔按钮的样式注入 id（判重防叠加）。 */
+export const ICONBTN_STYLE_ID = 'dsh-session-title-pattern-iconbtn-css';
+
+/**
+ * 头部铅笔按钮：对齐官方头部的图标按钮形态（figma Icon_container 28×28）。
+ *
+ * 官方 `Button ghost sm` 是 36×28 的胶囊（r14），比系统头部按钮宽一圈、圆角大一档，
+ * hover 框看起来「又大又蠢」（实机反馈）。这里按 Icon_container 的几何自己写：
+ * 28×28 方形、8px 圆角，hover/active 用官方交互 token，与系统按钮完全一致。
+ */
+export const ICONBTN_CSS = `
+.stp-iconBtn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer}
+.stp-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.stp-iconBtn:active:not(:disabled){background:var(--dsw-alias-interactive-bg-active)}
+.stp-iconBtn:disabled{cursor:not-allowed;opacity:.4}
+`;
+
 /**
  * 配置表单里「标题总结大模型」一排的样式。
  *

@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 // 官方基础组件。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致。
-import { Button, Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
 import {
   SettingsFormModel,
   settingsNumberField,
@@ -33,7 +33,7 @@ import { DirectoryStore } from './model-pair';
 import type { LlmDirectory } from './model-pair';
 import { LOCALE_NS, zh, en } from './locales';
 import { LOG } from './log';
-import { injectStyle, removeStyle, PAIR_STYLE_ID, PAIR_CSS } from './style';
+import { injectStyle, removeStyle, PAIR_STYLE_ID, PAIR_CSS, ICONBTN_STYLE_ID, ICONBTN_CSS } from './style';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -289,20 +289,23 @@ function GenerateTitleAction({
   });
 
   return (
-    // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，而 Button 不转发 ref。
+    // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，我们的定位也以它为基准。
     <span ref={wrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
       <Tooltip label={t('renameTitle')} side="bottom" delayMs={500}>
         <span style={{ display: 'inline-flex' }}>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<EditIcon size={16} />}
+          {/* 不用官方 Button：ghost sm 是 36×28 胶囊（r14），比系统头部按钮宽一圈。
+              这里按官方 Icon_container（28×28、r8）自绘，hover/active 用同一组 token。 */}
+          <button
+            type="button"
+            className="stp-iconBtn"
             disabled={running}
             onClick={() => (open ? close() : openPanel())}
             // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
             title={running ? t('renameDisabledHint') : undefined}
             aria-label={t('renameTitle')}
-          />
+          >
+            <EditIcon size={16} />
+          </button>
         </span>
       </Tooltip>
       {open ? (
@@ -427,9 +430,12 @@ export function apply(ctx: Context): void {
     installCrumbWidth();
     // 「供应商 + 模型」一行两个下拉的样式（配置表单用）。
     injectStyle(PAIR_STYLE_ID, PAIR_CSS);
+    // 头部铅笔按钮的 Icon_container 形态样式。
+    injectStyle(ICONBTN_STYLE_ID, ICONBTN_CSS);
     return () => {
       removeStyle(CRUMB_STYLE_ID);
       removeStyle(PAIR_STYLE_ID);
+      removeStyle(ICONBTN_STYLE_ID);
     };
   });
 

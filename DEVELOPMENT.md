@@ -118,6 +118,9 @@ entry 的 Config 导出**自动派生**）；`IconEditOutline16` 改名 `IconEdi
    显示原因。
 7. 插件列表与详情页的名称/介绍跟随界面语言（中文显示「会话标题格式化」，英文显示
    Session Title Formatter）；最后一排「标题长度上限 | 超时」并排正确。
+8. 头部铅笔按钮的 hover 框与系统自带按钮一致（28×28 方形、8px 圆角；不再是大胶囊）。
+   根因：官方 `Button ghost sm` 是 36×28 胶囊（r14），系统头部用的是
+   Icon_container（28×28）形态，已改为按该几何自绘 + 官方交互 token。
 
 **状态**：🔄 代码完成（typecheck + build 通过），待实机验证后发版。
 
