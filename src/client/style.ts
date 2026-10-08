@@ -46,8 +46,8 @@ export const ICONBTN_CSS = `
 /**
  * 配置表单里「标题总结大模型」一排的样式。
  *
- * 颜色、字号、圆角全部取官方 `--dsw-*` token；控件高度 / 边框对齐
- * `SettingsValueField` 的文本框（34px / 8px 圆角 / l4 边框），排在一列里不突兀。
+ * 颜色、字号、圆角全部取官方 `--dsw-*` token；控件高度 / 边框 / 圆角对齐
+ * `SettingsValueField` 的文本框（34px / `--dsw-radius-md` 圆角 / l4 边框），排在一列里不突兀。
  */
 export const PAIR_CSS = `
 .stp-pairField{display:flex;flex-direction:column;gap:6px;padding:12px 0}
@@ -60,14 +60,14 @@ export const PAIR_CSS = `
 .stp-reset:disabled{cursor:default;opacity:.5}
 .stp-pair{display:flex;gap:8px}
 .stp-pair>*{flex:1;min-width:0}
-.stp-combo{box-sizing:border-box;width:100%;height:34px;border:.5px solid var(--dsw-alias-border-l4);border-radius:8px;background:var(--dsw-alias-bg-layer-3);font:inherit;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary);padding:0 10px;display:inline-flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer}
+.stp-combo{box-sizing:border-box;width:100%;height:34px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);font:inherit;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary);padding:0 10px;display:inline-flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer}
 .stp-combo:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .stp-combo:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
 .stp-comboText{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stp-comboText[data-empty="1"]{color:var(--dsw-alias-label-tertiary)}
 .stp-comboChevron{display:inline-flex;transition:transform .15s ease}
 .stp-comboChevron[data-open="1"]{transform:rotate(180deg)}
-.stp-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5;appearance:none}
+.stp-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-md);padding:0 12px;font-size:13px;line-height:1.5;appearance:none}
 .stp-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .stp-input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
 .stp-hint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}

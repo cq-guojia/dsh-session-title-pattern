@@ -206,7 +206,11 @@ export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetFie
           t={t}
         />
         {FIELDS_AFTER_PAIR.map(renderField)}
-        <div className="stp-pair">{FIELDS_BOTTOM_ROW.map(renderField)}</div>
+        <div className="stp-pair">
+          {FIELDS_BOTTOM_ROW.map((f) => (
+            <div key={f.field}>{renderField(f)}</div>
+          ))}
+        </div>
       </SettingsForm>
       {toast !== null ? <Toast key={toast.seq} text={toast.text} tone="success" onDone={dismissToast} /> : null}
     </>
