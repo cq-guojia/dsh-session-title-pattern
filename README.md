@@ -147,6 +147,8 @@ npm run typecheck
 
 Implementation details (the cost model, how v0.8.1 wires the configuration form into dsh 0.1.7's plugin-page slot, and lessons from past iterations) live in [DEVELOPMENT.md](./DEVELOPMENT.md) — written in Chinese.
 
+> **`DEVELOPMENT.md` is a frozen historical dev-progress snapshot** (last touched at the doc-system upgrade); the version / task history it used to carry now lives in [`docs/PROGRESS-HISTORY.md`](docs/PROGRESS-HISTORY.md) (closed releases) and [`docs/progress.json`](docs/progress.json) (in-progress), maintained via the `koc-code-doc-progress` skill.
+
 > This README has two languages: this file and [README.zh.md](README.zh.md). **Changing one means changing the other** — the copy readers actually see is the one that counts.
 
 ## License

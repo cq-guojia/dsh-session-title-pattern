@@ -173,6 +173,10 @@ npm run typecheck
 实现细节（成本模型、v0.8.1 怎么接上 dsh 0.1.7 的插件详情页配置槽位、历代踩坑）记在
 [DEVELOPMENT.md](./DEVELOPMENT.md)（仅中文）。
 
+> **`DEVELOPMENT.md` 是文档体系升级时停更的历史开发进度快照**；它原先承载的版本 / 任务历史现统一收在
+> [`docs/PROGRESS-HISTORY.md`](docs/PROGRESS-HISTORY.md)（已结案发版）与 [`docs/progress.json`](docs/progress.json)
+> （在办），由 `koc-code-doc-progress` skill 维护。
+
 > 本 README 有中英两份：本文件与 [README.md](README.md)。**改一份必须同时改另一份** ——
 > 有读者看的那份才是有效的那份。
 
