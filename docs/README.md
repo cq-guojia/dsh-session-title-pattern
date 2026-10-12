@@ -16,8 +16,7 @@
 
 ## 暂未启用（内容待抽取）
 
-以下路径固定槽位本项目暂不适用，设计类内容目前仍散存在根目录 `DEVELOPMENT.md`
-（历史开发进度快照，迁移后保留），待后续抽取至 `docs/design/`：
+以下路径固定槽位本项目暂不适用，设计类内容原散存在根目录 `DEVELOPMENT.md`（已于文档体系升级时退役删除），待后续抽取至 `docs/design/`：
 
 - 运行逻辑 `docs/design/architecture.md`
 - 功能总索引 `docs/design/features.md`
@@ -27,7 +26,7 @@
 
 ## 历史进度快照
 
-根目录 `DEVELOPMENT.md` 是文档体系升级前的开发进度追踪文档（v0.1.0–v0.8.1 版本记录 +
-阶段计划 + 待办），于本次升级时**停更并保留作历史证据**，不删除、不改写。任务进度现已由
-`docs/progress.json` + `docs/PROGRESS-HISTORY.md` + `docs/worklog/` 承载（经 `koc-code-doc-progress`
-skill 的 `import` 从 `DEVELOPMENT.md` 迁来）。
+根目录 `DEVELOPMENT.md` 原为文档体系升级前的开发进度追踪文档（v0.1.0–v0.8.1 版本记录 +
+阶段计划 + 待办），已于升级时**退役删除**（内容仍留 git 历史）。其版本记录经 `koc-code-doc-progress`
+skill 的 `import` 迁入 `docs/progress.json` + `docs/PROGRESS-HISTORY.md` + `docs/worklog/`，任务进度现由
+这三处承载。
