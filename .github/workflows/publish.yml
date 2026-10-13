@@ -1,0 +1,34 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'            # 与仓库现有 v0.8.x tag 约定一致
+  workflow_dispatch:    # 允许手动触发
+
+# OIDC 发布 provenance 必须拿到 id-token
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm run build   # 确保 lib/ 产物与源码一致
+
+      - run: npm publish --provenance --access public
+
+      # latest 标签兜底：发布后显式重指向，避免网页缓存导致 latest 不切换
+      - run: |
+          VERSION=$(npm pkg get version | tr -d '"')
+          npm dist-tag add "dsh-session-title-pattern@${VERSION}" latest
