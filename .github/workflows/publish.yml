@@ -26,9 +26,6 @@ jobs:
 
       - run: npm run build   # 确保 lib/ 产物与源码一致
 
+      # npm publish 默认即把版本打上 latest；OIDC 自动鉴权只覆盖 publish 本身，
+      # 单独的 npm dist-tag 会回退读 .npmrc token 而 401，故不在此显式 dist-tag。
       - run: npm publish --provenance --access public
-
-      # latest 标签兜底：发布后显式重指向，避免网页缓存导致 latest 不切换
-      - run: |
-          VERSION=$(npm pkg get version | tr -d '"')
-          npm dist-tag add "dsh-session-title-pattern@${VERSION}" latest
