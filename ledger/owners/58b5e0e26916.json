@@ -1,7 +1,7 @@
 {
   "identity": {"uuid": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6"},
   "tasks": {
-    "20261109-0815-acea-接入核心库并改造设置页": {"category": "重构", "created": "2026-11-09 08:15:13", "creator": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "creator_name": "GuoJia-Agent", "finished": null, "owner": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "owner_name": "GuoJia-Agent", "started": "2026-11-09 08:15:13", "status": "doing", "tags": ["dsh-plugin-core", "UI改造", "模型选择", "设置页"], "title": "接入核心库并改造设置页", "updated": "2026-11-09 09:22:24", "worklog": "worklog/202611/09-0815-acea-接入核心库并改造设置页.md"}
+    "20261109-0815-acea-接入核心库并改造设置页": {"category": "重构", "created": "2026-11-09 08:15:13", "creator": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "creator_name": "GuoJia-Agent", "finished": null, "owner": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "owner_name": "GuoJia-Agent", "started": "2026-11-09 08:15:13", "status": "doing", "tags": ["dsh-plugin-core", "UI改造", "模型选择", "设置页"], "title": "接入核心库并改造设置页", "updated": "2026-11-09 10:55:05", "worklog": "worklog/202611/09-0815-acea-接入核心库并改造设置页.md"}
   },
   "version": "20261022000000"
 }
