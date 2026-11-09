@@ -1,7 +1,7 @@
 {
   "identity": {"uuid": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6"},
   "tasks": {
-    "20261109-0519-39ad-修复标题编辑弹窗与命令外露": {"category": "缺陷修复", "created": "2026-11-09 05:19:29", "creator": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "creator_name": "GuoJia-Agent", "finished": null, "owner": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "owner_name": "GuoJia-Agent", "started": "2026-11-09 05:19:29", "status": "doing", "tags": ["升级", "兼容性", "编辑弹窗", "斜杠命令", "静默交互"], "title": "修复标题编辑弹窗与命令外露", "updated": "2026-11-09 05:54:02", "worklog": "worklog/202611/09-0519-39ad-修复标题编辑弹窗与命令外露.md"}
+    "20261109-0519-39ad-修复标题编辑弹窗与命令外露": {"category": "缺陷修复", "created": "2026-11-09 05:19:29", "creator": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "creator_name": "GuoJia-Agent", "finished": null, "owner": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "owner_name": "GuoJia-Agent", "started": "2026-11-09 05:19:29", "status": "doing", "tags": ["升级", "兼容性", "编辑弹窗", "斜杠命令", "静默交互"], "title": "修复标题编辑弹窗与命令外露", "updated": "2026-11-09 05:58:55", "worklog": "worklog/202611/09-0519-39ad-修复标题编辑弹窗与命令外露.md"}
   },
   "version": "20261022000000"
 }
