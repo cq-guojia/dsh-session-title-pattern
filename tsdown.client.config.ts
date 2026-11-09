@@ -41,6 +41,8 @@ export default defineConfig({
   format: 'cjs',
   platform: 'browser',
   target: 'chrome99',
+  // 内联进来的依赖（floating-ui 等）含 process.env.NODE_ENV 的开发期分支，浏览器无 process。
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   // 类型由 host 侧 dts 承担，这里的 dts 会把 banner 包进 .d.cts 导致解析失败。
   dts: false,
   // 必须关：outDir 是 lib，开 clean 会连带清掉 host 产物。

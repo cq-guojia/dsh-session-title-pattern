@@ -1,12 +1,9 @@
 /**
- * 「标题总结大模型」：供应商 + 模型一行两个下拉（实机反馈恢复 v0.7.x 的选择器）。
+ * 「标题总结大模型」：供应商 + 模型联动选择（核心库 `ModelPicker`）。
  *
- * ## 为什么控件是自绘的
- *
- * 官方 settings-form 体系只有文本 / 数字 / 密钥三种字段控件，没有下拉 —— v0.8.0
- * 迁到官方表单时 provider / model 因此退化成了文本框。这里用官方 `Menu` + `Button`
- * 原语组合出下拉：草稿仍经 `edit()` 写进官方 `SettingsFormModel`，状态机（暂存 /
- * 保存 / overridden / 重置）一行都不自己管，只换「产生草稿文本的输入方式」。
+ * 控件与联动全交给 `dsh-plugin-core/ui` 的 `ModelPicker variant="cascade"`，
+ * 这里只负责把目录路由翻成分组、把 `${provider}/${id}` 拆回 host 的双字段草稿。
+ * 官方 `SettingsFormModel` 的暂存 / 保存 / overridden / 重置状态机一行都不自己管。
  *
  * ## 数据从哪来（0.1.7 仍可用，均已核实类型）
  *
@@ -19,9 +16,8 @@
  *
  * 目录 loading / unavailable 时退回两个文本框（与 v0.7.6 相同的 fail-safe）。
  */
-import { useState } from 'react';
-import { Menu } from '@deepseek-ai/dsh-client-ui-primitives';
-import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, Chip, Input, ModelPicker } from 'dsh-plugin-core/ui';
+import type { PickerGroup } from 'dsh-plugin-core/ui';
 
 import type { SessionTitlePatternLocaleKey } from './locales';
 
@@ -217,23 +213,17 @@ export class DirectoryStore {
   }
 }
 
-/** 下拉框尾部的 chevron（内联 SVG，不赌上游图标名）。 */
-const ChevronDown = (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-    style={{ flex: 'none', color: 'var(--dsw-alias-label-tertiary)' }}
-  >
-    <path d="M4 6.5 8 10.5 12 6.5" />
-  </svg>
-);
+/** 把目录路由翻成核心 ModelPicker 的分组；选项值统一为 `${provider}/${id}`。 */
+function toGroups(routes: readonly DirectoryRoute[]): PickerGroup[] {
+  return routes.map((route) => ({
+    value: route.provider,
+    label: route.displayName,
+    options: route.models.map((entry) => ({
+      value: `${route.provider}/${entry.id}`,
+      label: entry.name ?? entry.id,
+    })),
+  }));
+}
 
 /** `ModelPairFields` 收到的 props（字段值与动作由 ConfigPanel 转交）。 */
 export interface ModelPairFieldsProps {
@@ -254,13 +244,8 @@ export interface ModelPairFieldsProps {
 }
 
 /**
- * 供应商 + 模型：**一行两个下拉**。
- *
- * 为什么合并成一行：这本来就是一件事（先挑哪家的、再挑哪个模型），两个框的内容
- * 本身就能说明各自是干什么的，不再各配一个标签。左边第一个选项是「跟随对话模型」；
- * 选中厂家后右边自动落到该家的第一个模型（**只在选择时写草稿**，显示上从不自动
- * 补值 —— 那会让表单一打开就挂着「未保存」，v0.7.6 踩过的坑）。目录读不到才退回
- * 两个文本输入；目录可用时是**只能选**的下拉：手写 provider / model 几乎总是拼错。
+ * 供应商 + 模型：核心 `ModelPicker` 的 cascade 形态，两个下拉由组件自己联动。
+ * 目录读不到时退回两个核心 `Input` 文本框（与 v0.7.6 相同的 fail-safe）。
  */
 export function ModelPairFields({
   directory,
@@ -272,139 +257,72 @@ export function ModelPairFields({
   onReset,
   t,
 }: ModelPairFieldsProps) {
-  const [openMenu, setOpenMenu] = useState<'provider' | 'model' | null>(null);
-
   const routes = directory.status === 'ready' ? directory.routes : undefined;
-  const models = routes !== undefined ? (routes.find((route) => route.provider === provider)?.models ?? []) : [];
-  const providerKnown = routes?.some((route) => route.provider === provider) ?? true;
-  const following = provider === '';
-  const blocked = routes !== undefined && !following && models.length === 0 && model === '';
-  // 模型下拉的选中项：跟随对话模型时无意义；存过值原样保留（哪怕不在列表里，
-  // 用 notInList 行显示，绝不静默替换用户的选择）。
-  const modelKnown = models.some((entry) => entry.id === model);
+  const groups = routes === undefined ? undefined : toGroups(routes);
+  const value = provider !== '' && model !== '' ? `${provider}/${model}` : '';
+  const models = routes?.find((route) => route.provider === provider)?.models ?? [];
+  const blocked = routes !== undefined && provider !== '' && models.length === 0 && model === '';
 
-  const selectProvider = (id: string): void => {
-    // 换厂家，具体模型立刻落到新家的第一个 —— 这一项不允许留空。
-    const first = routes?.find((route) => route.provider === id)?.models[0]?.id ?? '';
-    onEdit('provider', id);
-    onEdit('model', id === '' ? '' : first);
+  const onModelChange = (next: string): void => {
+    // cascade 换供应商会先发 ''（新供应商由组件内部记着，不回传）；这时两个草稿
+    // 一起清空 = 跟随对话模型。选定具体模型后按第一个 '/' 拆回双字段。
+    const slash = next.indexOf('/');
+    if (slash < 0) {
+      onEdit('provider', '');
+      onEdit('model', '');
+      return;
+    }
+    onEdit('provider', next.slice(0, slash));
+    onEdit('model', next.slice(slash + 1));
   };
 
-  const providerDisplay =
-    provider === ''
-      ? t('followMainModel')
-      : (routes?.find((route) => route.provider === provider)?.displayName ??
-        t('notInList', { id: provider }));
-  const modelDisplay = model === '' ? '' : (models.find((entry) => entry.id === model)?.name ?? t('notInList', { id: model }));
-
-  const providerItems: MenuEntry[] = [
-    { id: '', label: t('followMainModel') },
-    ...(routes ?? []).map((route) => ({ id: route.provider, label: route.displayName })),
-    ...(providerKnown || provider === '' ? [] : [{ id: provider, label: t('notInList', { id: provider }) }]),
-  ];
-  const modelItems: MenuEntry[] = [
-    ...models.map((entry) => ({ id: entry.id, label: entry.name ?? entry.id })),
-    ...(modelKnown || model === '' ? [] : [{ id: model, label: t('notInList', { id: model }) }]),
-  ];
-
-  /** 下拉触发按钮：外观对齐文本框（同样的 34px 高度与边框），内容右侧带 chevron。 */
-  const trigger = (
-    label: string,
-    aria: SessionTitlePatternLocaleKey,
-    isOpen: boolean,
-    onToggle: () => void,
-    isDisabled: boolean,
-  ): React.JSX.Element => (
-    <button type="button" className="stp-combo" disabled={isDisabled} aria-label={t(aria)} onClick={onToggle}>
-      <span className="stp-comboText" data-empty={label === '' ? '1' : undefined}>
-        {label}
-      </span>
-      <span className="stp-comboChevron" data-open={isOpen ? '1' : undefined}>
-        {ChevronDown}
-      </span>
-    </button>
-  );
-
   return (
-    <div className="stp-pairField">
-      <div className="stp-pairHead">
-        <span className="stp-pairLabel">{t('modelPairLabel')}</span>
-        <span className="stp-badges">
-          {overridden ? <span className="stp-overridden">{t('overridden')}</span> : null}
-          <button type="button" className="stp-reset" disabled={disabled || !overridden} onClick={onReset}>
-            {t('reset')}
-          </button>
-        </span>
+    <div className="stp-config__field">
+      <div className="stp-config__head">
+        <span className="stp-config__label">{t('modelPairLabel')}</span>
+        {overridden ? <Chip tone="neutral" size="xs">{t('overridden')}</Chip> : null}
+        {overridden ? (
+          <Button variant="link" size="sm" disabled={disabled} onClick={onReset}>{t('reset')}</Button>
+        ) : null}
       </div>
-      {routes === undefined ? (
-        <div className="stp-pair">
-          <input
-            className="stp-input"
+      {groups === undefined ? (
+        <div className="stp-config__pair">
+          <Input
             value={provider}
             disabled={disabled}
             placeholder={t('providerPlaceholder')}
             aria-label={t('providerSelectAria')}
-            onChange={(event) => {
+            onChange={(text) => {
               // 换了供应商就清掉已选模型，避免留下属于上一个供应商的模型 id。
-              onEdit('provider', event.target.value);
+              onEdit('provider', text);
               onEdit('model', '');
             }}
           />
-          <input
-            className="stp-input"
+          <Input
             value={model}
             disabled={disabled}
             placeholder={t('modelPlaceholder')}
             aria-label={t('modelSelectAria')}
-            onChange={(event) => onEdit('model', event.target.value)}
+            onChange={(text) => onEdit('model', text)}
           />
         </div>
       ) : (
-        <div className="stp-pair">
-          <Menu
-            open={openMenu === 'provider'}
-            anchor={trigger(
-              providerDisplay,
-              'providerSelectAria',
-              openMenu === 'provider',
-              () => setOpenMenu(openMenu === 'provider' ? null : 'provider'),
-              disabled,
-            )}
-            items={providerItems}
-            selectedId={provider}
-            onSelect={(id) => {
-              setOpenMenu(null);
-              selectProvider(id);
-            }}
-            onClose={() => setOpenMenu(null)}
-          />
-          <Menu
-            open={openMenu === 'model'}
-            anchor={trigger(
-              modelDisplay,
-              'modelSelectAria',
-              openMenu === 'model',
-              () => setOpenMenu(openMenu === 'model' ? null : 'model'),
-              // 跟随对话模型时第二个框没有意义；这家一个模型都没有时也无从选起。
-              // 置灰而不是藏起来：两个框并排，藏一个会让布局跳动。
-              disabled || following || models.length === 0,
-            )}
-            items={modelItems}
-            selectedId={model}
-            onSelect={(id) => {
-              setOpenMenu(null);
-              onEdit('model', id);
-            }}
-            onClose={() => setOpenMenu(null)}
-          />
-        </div>
+        <ModelPicker
+          variant="cascade"
+          size="lg"
+          groups={groups}
+          value={value}
+          defaultLabel={t('followMainModel')}
+          disabled={disabled}
+          onChange={onModelChange}
+        />
       )}
-      {directory.status === 'loading' ? <p className="stp-hint">{t('loadingDirectory')}</p> : null}
+      {directory.status === 'loading' ? <p className="stp-config__hint">{t('loadingDirectory')}</p> : null}
       {directory.status === 'unavailable' ? (
-        <p className="stp-hint">{t('directoryUnavailable', { reason: directory.reason })}</p>
+        <p className="stp-config__hint">{t('directoryUnavailable', { reason: directory.reason })}</p>
       ) : null}
-      {routes !== undefined ? <p className="stp-hint">{t('credentialsUnknown')}</p> : null}
-      {blocked ? <p className="stp-invalid">{t('pairBlocked')}</p> : null}
+      {routes !== undefined ? <p className="stp-config__hint">{t('credentialsUnknown')}</p> : null}
+      {blocked ? <p className="stp-config__invalid">{t('pairBlocked')}</p> : null}
     </div>
   );
 }

@@ -45,6 +45,9 @@ export type SessionTitlePatternLocaleKey =
   | 'saving'
   | 'saveSuccess'
   | 'saveFailed'
+  // 设置区外链（名字逐字照抄 dsh-task-ledger）
+  | 'configGithub'
+  | 'configComponents'
   // 重命名面板
   | 'renameTitle'
   | 'renameDisabledHint'
@@ -98,6 +101,8 @@ export const zh: Record<SessionTitlePatternLocaleKey, string> = {
   saving: '保存中…',
   saveSuccess: '已保存',
   saveFailed: '保存未落地，Host 拒绝了这次写入（草稿已保留，可修改后重试）',
+  configGithub: '访问 GitHub',
+  configComponents: '蓝鲸组件库',
   renameTitle: '重命名会话',
   renameDisabledHint: '会话回复中，暂不能重命名',
   renamePlaceholder: '输入新的会话标题',
@@ -152,6 +157,8 @@ export const en: Record<SessionTitlePatternLocaleKey, string> = {
   saveSuccess: 'Saved',
   saveFailed:
     'Save did not land: the Host rejected this write (your draft is kept — fix it and retry)',
+  configGithub: 'Visit GitHub',
+  configComponents: 'dsh-plugin-core',
   renameTitle: 'Rename session',
   renameDisabledHint: 'The session is replying; renaming is unavailable for now',
   renamePlaceholder: 'Enter the new session title',

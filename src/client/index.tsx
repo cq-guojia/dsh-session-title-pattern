@@ -17,6 +17,9 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // 官方基础组件。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致。
 import { Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
+// 核心控件库按需引子路径：ui（控件与样式注入器）、design（styleKit 工厂）。
+import { Button, IconButton, Input, setStyleKit } from 'dsh-plugin-core/ui';
+import { createStyleKit } from 'dsh-plugin-core/design';
 import {
   SettingsFormModel,
   settingsNumberField,
@@ -34,7 +37,15 @@ import { DirectoryStore } from './model-pair';
 import type { LlmDirectory } from './model-pair';
 import { LOCALE_NS, zh, en } from './locales';
 import { LOG } from './log';
-import { injectStyle, removeStyle, PAIR_STYLE_ID, PAIR_CSS, ICONBTN_STYLE_ID, ICONBTN_CSS } from './style';
+import { STP_CSS } from './style';
+
+/**
+ * 核心控件样式统一走一个带 id 的注入器（多插件同页不抢同一个 `<style>`）。
+ * 自绘布局与标题宽度覆盖也登记到同一个 kit，不再另开注入器。
+ */
+const styleKit = createStyleKit({ id: 'dsh-session-title-pattern-ui' });
+setStyleKit(styleKit);
+styleKit.applyStyle('stp', STP_CSS);
 
 export const name = 'dsh-session-title-pattern';
 
@@ -100,20 +111,6 @@ const STATE_LINE = `${RETITLE_LINE} state`;
  * 「点了没反应」最费时间的一处就是猜命令到底注册上没有，直接把缺哪条打出来。
  */
 const REQUIRED_COMMANDS = ['retitle'];
-
-/** 注入的样式元素 id。带 id 是为了判重，保证重复激活不会叠加规则。 */
-const CRUMB_STYLE_ID = 'dsh-session-title-pattern-crumb-width';
-
-/**
- * 当前会话标题（面包屑最后一段）的宽度上限。
- *
- * 上游 `.crumb` 把宽度写死成 `max-width:220px`，减掉左右内边距 16px 只剩 204px；
- * 我们的标题前缀「日期｜类型」就吃掉约 94px，留给主题的只有约 110px ——
- * 14px 字号下即七八个中文字，这就是「窗口很大标题却很短」的原因。
- *
- * 这里按标题上限 80 字节（约 40 个中文，约 560px）留足余量，再用 60vw 兜住窄窗口。
- */
-const CRUMB_MAX_WIDTH = 'min(640px, 60vw)';
 
 type RemoteCommands = Context['remote']['commands'];
 
@@ -285,43 +282,23 @@ function GenerateTitleAction({
     }
   };
 
-  const inputStyle = {
-    boxSizing: 'border-box' as const,
-    width: '100%',
-    height: 34,
-    font: 'inherit',
-    color: 'var(--dsw-alias-label-primary)',
-    background: 'var(--dsw-alias-bg-layer-3)',
-    border: '.5px solid var(--dsw-alias-border-l4)',
-    borderRadius: 8,
-    padding: '0 10px',
-    fontSize: 13,
-  };
-  const ghostButton = (disabled: boolean): React.CSSProperties => ({
-    appearance: 'none', font: 'inherit', cursor: disabled ? 'default' : 'pointer',
-    background: 'transparent', border: '.5px solid var(--dsw-alias-border-l4)',
-    borderRadius: 8, padding: '0 12px', height: 30, fontSize: 13,
-    color: 'var(--dsw-alias-label-primary)', opacity: disabled ? 0.4 : 1,
-  });
-
   return (
     // 必须套一层 span 当锚点：Tooltip 要往子元素注入 ref，我们的定位也以它为基准。
     <span ref={wrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      {/* 核心 IconButton 不渲染原生 title；禁用时 Tooltip 不出现，靠父级原生提示说明原因。 */}
       <Tooltip label={t('renameTitle')} side="bottom" delayMs={500}>
-        <span style={{ display: 'inline-flex' }}>
-          {/* 不用官方 Button：ghost sm 是 36×28 胶囊（r14），比系统头部按钮宽一圈。
-              几何与形状语义都在 style.ts 的 ICONBTN_CSS 里，改样式去那里。 */}
-          <button
-            type="button"
-            className="stp-iconBtn"
+        <span
+          style={{ display: 'inline-flex' }}
+          title={running ? t('renameDisabledHint') : undefined}
+        >
+          <IconButton
+            variant="plain"
+            size="md"
+            icon={<EditIcon size={16} />}
+            label={t('renameTitle')}
             disabled={running}
             onClick={() => (open ? close() : openPanel())}
-            // 禁用的原生控件不派发鼠标事件，Tooltip 不会出现，补一条原生提示说明原因。
-            title={running ? t('renameDisabledHint') : undefined}
-            aria-label={t('renameTitle')}
-          >
-            <EditIcon size={16} />
-          </button>
+          />
         </span>
       </Tooltip>
       {open && panelPos !== null
@@ -352,27 +329,16 @@ function GenerateTitleAction({
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>
               {t('renameTitle')}
             </span>
-            <button
-              type="button"
-              onClick={close}
-              aria-label={t('closeAria')}
-              style={{
-                appearance: 'none', font: 'inherit', cursor: 'pointer', lineHeight: 1,
-                background: 'transparent', border: 'none', fontSize: 16,
-                color: 'var(--dsw-alias-label-secondary)', padding: 2,
-              }}
-            >
-              ×
-            </button>
+            <IconButton variant="plain" size="sm" icon="×" label={t('closeAria')} onClick={close} />
           </div>
-          <input
+          <Input
             value={draft}
             placeholder={t('renamePlaceholder')}
-            onChange={(event) => setDraft(event.target.value)}
+            aria-label={t('renameTitle')}
+            onChange={setDraft}
             onKeyDown={(event) => {
               if (event.key === 'Enter') save();
             }}
-            style={inputStyle}
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Tooltip label={t('lockHint')} side="top" delayMs={400}>
@@ -384,30 +350,26 @@ function GenerateTitleAction({
               </span>
             </Tooltip>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button type="button" onClick={close} style={ghostButton(false)}>
+              <Button variant="outline" size="lg" onClick={close}>
                 {t('cancel')}
-              </button>
-              <button
-                type="button"
-                disabled={busy || running}
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                loading={busy}
+                disabled={running}
                 onClick={generateDraft}
-                style={ghostButton(busy || running)}
               >
                 {busy ? t('generating') : t('autoGenerate')}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="lg"
                 disabled={busy || draft.trim() === ''}
                 onClick={save}
-                style={{
-                  appearance: 'none', font: 'inherit', cursor: draft.trim() === '' || busy ? 'default' : 'pointer',
-                  border: '1px solid #0000', borderRadius: 8, padding: '0 12px', height: 30, fontSize: 13,
-                  background: 'var(--dsw-alias-label-primary)', color: 'var(--dsw-alias-bg-layer-3)',
-                  opacity: draft.trim() === '' || busy ? 0.4 : 1,
-                }}
               >
                 {t('confirmSave')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>,
@@ -418,46 +380,7 @@ function GenerateTitleAction({
   );
 }
 
-/**
- * 放宽当前会话标题的宽度上限。
- *
- * 为什么只能用 CSS 覆盖：会话标题是头部面包屑的最后一段，上游对它只有
- * `.crumb{max-width:220px}` 这一条宽度约束，而且没有任何槽位能改写它 ——
- * `conversation.session.header.lineage` 的契约是「面包屑标题的可选渲染器」，
- * 但**当前会话的 title 元素由上游无条件原生渲染**，槽位只能作为它后面的兄弟节点。
- *
- * 为什么必须 `!important`：属性选择器与上游 `.wSkVaW_crumb` 特异性相同（都是 0,1,0），
- * 平局按源码顺序决胜，而我们的注入顺序无法保证。
- *
- * 为什么只匹配 `_crumbCurrent`：它只命中最后一个面包屑，即当前会话标题；
- * 祖先会话与子代理的面包屑（只有 `_crumb`）保持 220px，不挤占同一行空间。
- * 宽度不足时也不会溢出 —— `.crumb` 自带 `overflow:hidden`，flex 项的
- * `min-width:auto` 因此解析为 0，会自动收缩并省略。
- *
- * 失效模式：选择器依赖 CSS Modules 生成的局部类名后缀 `_crumbCurrent`。
- * 上游若重命名该类名，本规则会**静默失效**（不报错、不崩溃，只是标题又变短）。
- * 排查方法：DevTools 选中标题元素，看它 class 属性里是否还有 `_crumbCurrent`。
- */
-function installCrumbWidth(): void {
-  injectStyle(CRUMB_STYLE_ID, `[class*="_crumbCurrent"]{max-width:${CRUMB_MAX_WIDTH} !important;}`);
-}
-
 export function apply(ctx: Context): void {
-  // 放宽会话标题宽度上限。纯样式改动，与后面的槽位注册互不依赖，
-  // 放在最前面是为了尽早注入，避免标题先按 220px 渲染再跳变。
-  ctx.effect(() => {
-    installCrumbWidth();
-    // 「供应商 + 模型」一行两个下拉的样式（配置表单用）。
-    injectStyle(PAIR_STYLE_ID, PAIR_CSS);
-    // 头部铅笔按钮的 Icon_container 形态样式。
-    injectStyle(ICONBTN_STYLE_ID, ICONBTN_CSS);
-    return () => {
-      removeStyle(CRUMB_STYLE_ID);
-      removeStyle(PAIR_STYLE_ID);
-      removeStyle(ICONBTN_STYLE_ID);
-    };
-  });
-
   /**
    * 模型目录 store（配置表单的 provider / model 下拉数据源）。
    *

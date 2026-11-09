@@ -1,75 +1,34 @@
 /**
- * 样式注入的小工具。
+ * 本插件自己的样式，统一注册到 `dsh-plugin-core` 的 styleKit（全插件唯一注入器）。
  *
- * 原来住在 `hidden/dom.ts` 里；0.8.0 删除隐藏会话功能后，标题宽度覆盖
- * （`installCrumbWidth`）仍需要它，故独立成模块。
+ * 控件皮肤由核心库各控件自注入，这里只管布局、提示文案与标题宽度覆盖。
+ * 颜色一律吃宿主 `--dsw-alias-*` token，不自带明暗判据。
  */
-
-/** 往 `<head>` 注入一条带 id 的 `<style>`；已存在（按 id 判重）则跳过。 */
-export function injectStyle(id: string, css: string): void {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById(id) !== null) return;
-  const style = document.createElement('style');
-  style.id = id;
-  style.textContent = css;
-  document.head.append(style);
-}
-
-/** 按 id 摘掉注入的 `<style>`；不存在时静默。 */
-export function removeStyle(id: string): void {
-  if (typeof document === 'undefined') return;
-  document.getElementById(id)?.remove();
-}
-
-/** 「供应商 + 模型」一行两个下拉的样式注入 id（判重防叠加）。 */
-export const PAIR_STYLE_ID = 'dsh-session-title-pattern-pair-css';
-
-/** 头部铅笔按钮的样式注入 id（判重防叠加）。 */
-export const ICONBTN_STYLE_ID = 'dsh-session-title-pattern-iconbtn-css';
 
 /**
- * 头部铅笔按钮：逐字照抄 better-sidebar 的 `.toggleButton`
- * （DSH-better-sidebar src/client/sidebar.module.css）。
+ * 当前会话标题（面包屑最后一段）的宽度上限。
  *
- * 它实机 hover 底就是官方那种「大弧线」观感，写法是 `border-radius: 50%`
- * 且不声明 corner-shape —— 全局 superellipse 由此作用于四个角，50% 半径
- * 四角相接正好拼出一个超椭圆。不能写 `999px`（会被按满圆豁免成纯圆，
- * 实机已踩），也不能写 `corner-shape: round`（同样退回纯圆）。
+ * 上游把 `.crumb` 写死 `max-width:220px` 且没有槽位能改写它；属性选择器与上游
+ * `.wSkVaW_crumb` 特异性相同，靠 `!important` 决胜。`_crumbCurrent` 只命中最后
+ * 一个面包屑，祖先会话与子代理不受影响。上游若重命名该类名，本规则静默失效
+ * （DevTools 查标题元素 class 里还有没有 `_crumbCurrent`）。
  */
-export const ICONBTN_CSS = `
-.stp-iconBtn{box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out),color var(--ds-transition-duration-slow) var(--ds-ease-in-out)}
-.stp-iconBtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.stp-iconBtn:disabled{opacity:.4;cursor:default}
-.stp-iconBtn:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}
-`;
-
-/**
- * 配置表单里「标题总结大模型」一排的样式。
- *
- * 颜色、字号、圆角全部取官方 `--dsw-*` token；控件高度 / 边框 / 圆角对齐
- * `SettingsValueField` 的文本框（34px / `--dsw-radius-md` 圆角 / l4 边框），排在一列里不突兀。
- */
-export const PAIR_CSS = `
-.stp-pairField{display:flex;flex-direction:column;gap:6px;padding:12px 0}
-.stp-pairHead{display:flex;align-items:center;gap:8px}
-.stp-pairLabel{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:1.5;color:var(--dsw-alias-label-primary)}
-.stp-badges{display:inline-flex;align-items:center;gap:8px}
-.stp-overridden{font-size:12px;line-height:1.5;color:var(--dsw-alias-state-business-primary)}
-.stp-reset{font:inherit;font-size:12px;line-height:1.5;padding:0;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.stp-reset:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
-.stp-reset:disabled{cursor:default;opacity:.5}
-.stp-pair{display:flex;gap:8px}
-.stp-pair>*{flex:1;min-width:0}
-.stp-combo{box-sizing:border-box;width:100%;height:34px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);font:inherit;font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary);padding:0 10px;display:inline-flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer}
-.stp-combo:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
-.stp-combo:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
-.stp-comboText{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stp-comboText[data-empty="1"]{color:var(--dsw-alias-label-tertiary)}
-.stp-comboChevron{display:inline-flex;transition:transform .15s ease}
-.stp-comboChevron[data-open="1"]{transform:rotate(180deg)}
-.stp-input{box-sizing:border-box;width:100%;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-md);padding:0 12px;font-size:13px;line-height:1.5;appearance:none}
-.stp-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
-.stp-input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}
-.stp-hint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
-.stp-invalid{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}
+export const STP_CSS = `
+[class*="_crumbCurrent"]{max-width:min(640px, 60vw) !important;}
+.stp-config__field{display:flex;flex-direction:column;gap:6px;padding:12px 0}
+.stp-config__head{display:flex;align-items:center;gap:8px;min-height:24px}
+.stp-config__label{flex:1;min-width:0;font-size:13px;font-weight:500;line-height:1.5;color:var(--dsw-alias-label-primary)}
+.stp-config__hint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.stp-config__invalid{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}
+.stp-config__note{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.stp-config__failed{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}
+.stp-config__pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+.stp-config__row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:0 0 24px;border-bottom:1px solid var(--dsw-alias-border-l4)}
+/* cascade 的两个下拉各占一半，别缩成两枚小按钮（核心默认按内容宽 min 120px）。 */
+.stp-config__field .dshpc-picker__row{gap:8px}
+.dshpc-picker__row>.dshpc-picker{flex:1 1 0;min-width:0;display:block}
+.dshpc-picker__row .dshpc-picker__trigger{width:100%;min-width:0}
+/* 数字框只要手输，不要浏览器自带的上下箭头。 */
+.stp-config__num::-webkit-inner-spin-button,.stp-config__num::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.stp-config__num{-moz-appearance:textfield}
 `;
