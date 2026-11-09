@@ -218,20 +218,28 @@ function isEligibleUserMessage(event: SessionEvent): boolean {
  * `request.messages`，只能自己从事件里提 —— 判定条件与服务的
  * `sessionTitleUserMessageOf` 逐条对齐：`user/message` + 用户来源，
  * 取全部 text 块按行拼接，归一化后为空的消息（纯附件、纯空白）跳过。
+ *
+ * 严格口径一条都没有时回退到所有 `user/message` 文本：跑任务生成的会话、从归档
+ * 开分支的会话，首条消息是插件注入的 notice（`source.kind` 为 `task-ledger` /
+ * `task-dispatch-table` 等），严格口径永远为 0，手动生成标题会一直报「no messages
+ * usable」。轮次自动命名仍只认 `isEligibleUserMessage`，不会被注入消息带偏。
  */
 function collectHumanMessages(events: readonly SessionEvent[]): SessionTitleUserMessage[] {
-  const messages: SessionTitleUserMessage[] = [];
+  const human: SessionTitleUserMessage[] = [];
+  const anyUser: SessionTitleUserMessage[] = [];
   for (const event of events) {
     // 内联判定而不是调用 isEligibleUserMessage：类型收窄需要字面的判别式联合检查。
-    if (event.type !== 'user/message' || event.data.source.kind !== 'user') continue;
+    if (event.type !== 'user/message') continue;
     const text = event.data.content
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('\n');
     if (normalizeSessionTitle(text, Number.MAX_SAFE_INTEGER).length === 0) continue;
-    messages.push({ seq: event.seq, text });
+    const message = { seq: event.seq, text };
+    if (event.data.source.kind === 'user') human.push(message);
+    anyUser.push(message);
   }
-  return messages;
+  return human.length > 0 ? human : anyUser;
 }
 
 /**
