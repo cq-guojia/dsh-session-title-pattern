@@ -9,7 +9,7 @@ import type {
 } from '@deepseek-ai/dsh-session-title';
 // 下面几个只为拿到类型增强（ctx.commands / ctx.llm / ctx.settings / session 事件），
 // 不含运行时值。tsconfig 的 types 是空的，模块增强必须靠显式 import 才会被加载。
-import type {} from '@deepseek-ai/dsh-commands';
+import type { CommandDefinition } from '@deepseek-ai/dsh-commands';
 import type {} from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-settings';
@@ -37,34 +37,29 @@ export const inject = ['sessionTitle'] as const;
  * 注册 `plugins.bundle.config` 槽位并读写同一命名空间。
  */
 
-/** 手动重算标题的命令名（不含斜杠）。 */
+/** 唯一公开的命令名（不含斜杠）。 */
 const RETITLE_COMMAND = 'retitle';
 
-/** 手动改名命令：写入「用户」来源的标题，写入即进入锁定态。 */
-const RENAME_COMMAND = 'title-rename';
-
-/** 锁定命令：把当前标题以「用户」来源写回（内容不变），停止自动更新。 */
-const LOCK_COMMAND = 'title-lock';
-
-/** 解锁命令：恢复自动更新。标题内容保持不变，**不触发重新生成**。 */
-const UNLOCK_COMMAND = 'title-unlock';
-
-/** 草稿命令：按当前模式真算一次标题，**只返回文本、不写标题**，给面板的「自动生成」用。 */
-const SUGGEST_COMMAND = 'title-suggest';
-
 /**
- * 锁定状态查询命令：面板打开时用它把「到底锁没锁」问回来。
+ * 面板内部动作：一律走 `/retitle <动作> [参数]` 的子参数分发。
  *
- * 平台的 title 投影只带文本不带来源（wire 类型是 `string | null`），浏览器读不到
- * `source.kind`，所以「当前是否锁定」只能由 host 回答 —— 这就是 v0.6.0 那条
- * 「锁定态只有本地记忆，刷新后按未锁定显示」限制的彻底解法。
+ * dsh 0.2.2-rc.1 把命令注册表全量列进输入框的斜杠候选，多注册一条就多占一格；
+ * 这些动作本不是给人手敲的，收敛成一条命令的子参数，候选里只剩 `/retitle`。
  */
-const STATE_COMMAND = 'title-state';
+// 变量名沿用旧名以免改动 5 处 handler 注册点，但值已是 `/retitle` 的子动作 token。
+const RENAME_COMMAND = 'rename';
+const LOCK_COMMAND = 'lock';
+const UNLOCK_COMMAND = 'unlock';
+const SUGGEST_COMMAND = 'suggest';
+const STATE_COMMAND = 'state';
 
-/** `title-state` 的回答：已锁定（标题来源是「用户」）。 */
+/** 收集子动作而不注册成独立命令：`register` 返回 disposer，这里照旧交给 `ctx.effect`。 */
+type CommandCollector = (definition: CommandDefinition) => () => void;
+
+/** `/retitle state` 的回答：已锁定（标题来源是「用户」）。 */
 const LOCKED = 'locked';
 
-/** `title-state` 的回答：未锁定。 */
+/** `/retitle state` 的回答：未锁定。 */
 const UNLOCKED = 'unlocked';
 
 /**
@@ -455,15 +450,19 @@ class SessionTitlePatternProvider implements SessionTitleProvider {
 }
 
 /**
- * 注册改名 / 锁定命令（设置面板与标题旁的面板都走它们）。
+ * 收集改名 / 锁定子动作（设置面板与标题旁的面板都走它们）。
  *
  * 锁定的实现：`rename()` 写入的标题来源是「用户」，自动命名随即停止 —— 这是平台的
  * 既有语义，所以「锁定不改字」就是把当前标题原样写回。解锁 = `/retitle`（refresh
  * 会覆盖已固定的用户标题，文档明确这是解锁路径）。
  */
-function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void {
+function registerTitleEditCommands(
+  ctx: Context,
+  getConfig: () => Config,
+  collect: CommandCollector,
+): void {
   ctx.effect(() =>
-    ctx.commands.register({
+    collect({
       name: RENAME_COMMAND,
       description: 'Manually set the session title (locks it and stops automatic updates)',
       handler: ({ agent, rawInput }) => {
@@ -480,7 +479,7 @@ function registerTitleEditCommands(ctx: Context, getConfig: () => Config): void 
     }),
   );
   ctx.effect(() =>
-    ctx.commands.register({
+    collect({
       name: LOCK_COMMAND,
       description: 'Lock the current session title (stops automatic updates)',
       handler: ({ agent }) => {
@@ -522,14 +521,14 @@ function draftRoute(
 }
 
 /**
- * 面板专用命令：`title-suggest`（自动生成的草稿）、`title-unlock`（单纯解锁）
- * 与 `title-state`（查锁定状态）。
+ * 面板专用子动作：`suggest`（草稿）、`unlock`（解锁）与 `state`（查锁定状态）。
  *
- * 两个命令都给设置面板的浮层用，不打算让用户手敲，但注册成命令可以完全复用
- * 命令通道（host 执行、结果随 CommandResult 带回浏览器），不用另开远程接口。
+ * 它们不打算让用户手敲，也不再各自注册成命令 —— 统一由 `/retitle <动作>` 分发，
+ * 依旧复用命令通道（host 执行、结果随 CommandResult 带回浏览器），不用另开远程接口。
  */
 function registerPanelCommands(
   ctx: Context,
+  collect: CommandCollector,
   options: {
     getConfig: () => Config;
     getLlm: () => LlmService | undefined;
@@ -546,7 +545,7 @@ function registerPanelCommands(
   const { getConfig, getLlm, resolveTypeLang, states, provider } = options;
 
   ctx.effect(() =>
-    ctx.commands.register({
+    collect({
       name: SUGGEST_COMMAND,
       description: 'Draft a title from the current conversation (returns text only, never writes it)',
       recordInput: false,
@@ -618,7 +617,7 @@ function registerPanelCommands(
   );
 
   ctx.effect(() =>
-    ctx.commands.register({
+    collect({
       name: UNLOCK_COMMAND,
       description: 'Unlock the session title (resumes automatic updates; title text unchanged)',
       recordInput: false,
@@ -639,7 +638,7 @@ function registerPanelCommands(
   );
 
   ctx.effect(() =>
-    ctx.commands.register({
+    collect({
       name: STATE_COMMAND,
       description: 'Report whether the current session title is locked',
       recordInput: false,
@@ -657,7 +656,11 @@ function registerPanelCommands(
 }
 
 /**
- * 注册 `/retitle` 命令：手动重算一次当前会话标题。
+ * 注册唯一的公开命令 `/retitle`。
+ *
+ * 空参数 = 手动重算（用户手打 `/retitle` 走这条）；`/retitle <动作> [参数]` 由面板
+ * 内部调用，动作 handler 来自 collect 收集的表，不再各自注册成命令 —— dsh
+ * 0.2.2-rc.1 会把每条注册命令都列进输入框的斜杠候选。
  *
  * `refresh()` 是解除用户 pin 的唯一切入口 —— 用户手动重命名过的会话处于
  * pinned 状态，自动命名会停止调度，只有它能重新接管。
@@ -665,36 +668,54 @@ function registerPanelCommands(
  * 手动重算会重置滚动状态（`seenCount` 归零、摘要清空），让这次调用重新基于
  * 「首条 + 最近一批」归纳；**主线保留** —— 那是模型逐轮积累的抗漂移锚，清了就找不回来。
  */
-function registerRetitleCommand(ctx: Context, states: Map<string, SessionState>): void {
+function registerRetitleCommand(
+  ctx: Context,
+  states: Map<string, SessionState>,
+  subcommands: Map<string, CommandDefinition['handler']>,
+): void {
   ctx.effect(() =>
     ctx.commands.register({
       name: RETITLE_COMMAND,
-      description: 'Regenerate the session title from the conversation',
-      // 命令不接受输入，没必要在会话日志里重复记一条空输入。
+      description: 'Manage the session title (regenerate, rename, lock, or unlock)',
+      // 子动作与参数只走 rawInput，不必在会话日志里重复记一遍。
       recordInput: false,
-      handler: async ({ agent, signal }) => {
-        const state = states.get(agent.session.id);
-        if (state !== undefined) {
-          // 清摘要与计数：让这次调用基于「首条 + 最近一批」重来。
-          // **主线刻意保留** —— 它是模型逐轮积累的判断，是抗漂移的锚。手动重算的输入
-          // 只有首条和最近一批（maxInputBytes 闸门从旧往新丢），主线若出现在会话中段，
-          // 清掉它就再也找不回来了。保留的代价为零（一行、几十字节），而且提示词
-          // 允许模型在会话目标真变了时改它，所以「重新归纳」的能力并没有丢。
-          state.summary = '';
-          state.seenCount = 0;
-        }
-        try {
-          const snapshot = await ctx.sessionTitle.refresh(agent.session, signal);
-          if (snapshot === undefined) {
-            return {
-              kind: 'error',
-              text: 'This session has no messages usable for generating a title',
-            };
+      handler: async (invocation) => {
+        const raw = invocation.rawInput.trim();
+        const space = raw.search(/\s/u);
+        const op = space < 0 ? raw : raw.slice(0, space);
+        if (op.length === 0) {
+          const { agent, signal } = invocation;
+          const state = states.get(agent.session.id);
+          if (state !== undefined) {
+            // 清摘要与计数：让这次调用基于「首条 + 最近一批」重来。
+            // **主线刻意保留** —— 它是模型逐轮积累的判断，是抗漂移的锚。手动重算的输入
+            // 只有首条和最近一批（maxInputBytes 闸门从旧往新丢），主线若出现在会话中段，
+            // 清掉它就再也找不回来了。保留的代价为零（一行、几十字节），而且提示词
+            // 允许模型在会话目标真变了时改它，所以「重新归纳」的能力并没有丢。
+            state.summary = '';
+            state.seenCount = 0;
           }
-          return { kind: 'success', text: snapshot.title };
-        } catch (error) {
-          return { kind: 'error', text: `Failed to generate title: ${String(error)}` };
+          try {
+            const snapshot = await ctx.sessionTitle.refresh(agent.session, signal);
+            if (snapshot === undefined) {
+              return {
+                kind: 'error',
+                text: 'This session has no messages usable for generating a title',
+              };
+            }
+            return { kind: 'success', text: snapshot.title };
+          } catch (error) {
+            return { kind: 'error', text: `Failed to generate title: ${String(error)}` };
+          }
         }
+        const handler = subcommands.get(op);
+        if (handler === undefined) {
+          return { kind: 'error', text: `Unknown /retitle action: ${op}` };
+        }
+        return handler({
+          ...invocation,
+          rawInput: space < 0 ? '' : raw.slice(space + 1).trim(),
+        });
       },
     }),
   );
@@ -867,16 +888,25 @@ export function apply(ctx: Context, config: VolatileConfig): void {
   // **注册必须走 inject 给回的 commandCtx**：apply 收到的 ctx 是受保护代理，
   // 未声明就访问 ctx.commands 会同步抛 `cannot get property "commands" without
   // inject`，apply 一抛整个 dsh 都起不来（v0.5.23 的实际事故）。/retitle 一直是
-  // 这个写法所以没事，两个新命令照抄它。
+  // 这个写法所以没事，所有命令注册都照抄它。
   ctx.inject(['commands'], (commandCtx) => {
-    registerRetitleCommand(commandCtx, states);
-    registerTitleEditCommands(commandCtx, currentConfig);
-    registerPanelCommands(commandCtx, {
+    // 只注册一条 `/retitle`；其余 5 个动作收进子动作表，不再进命令注册表 ——
+    // 0.2.2-rc.1 会把每条注册命令都列进输入框的斜杠候选。
+    const subcommands = new Map<string, CommandDefinition['handler']>();
+    const collect: CommandCollector = (definition) => {
+      subcommands.set(definition.name, definition.handler);
+      return () => {
+        subcommands.delete(definition.name);
+      };
+    };
+    registerTitleEditCommands(commandCtx, currentConfig, collect);
+    registerPanelCommands(commandCtx, collect, {
       getConfig: currentConfig,
       getLlm: () => llm,
       resolveTypeLang,
       states,
       provider,
     });
+    registerRetitleCommand(commandCtx, states, subcommands);
   });
 }
