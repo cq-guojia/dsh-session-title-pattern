@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Context } from '@deepseek-ai/cordis';
 // 下面几个只为拿到类型增强（SlotMap / SessionStandardProps / ctx.remote），
 // 全部是 type-only，运行时不会引入，因此不会触发客户端产物纯度闸门。
@@ -194,13 +195,13 @@ function GenerateTitleAction({
   // 锁定态只有本地记忆：平台的标题投影不带来源，刷新页面后按未锁定显示。
   const [locked, setLocked] = useState(false);
   const wrapRef = useRef<HTMLSpanElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   /**
-   * 卡片左缘相对锚点的横向偏移：对齐**会话标题的左缘**，而不是右缘贴着铅笔按钮
-   * —— 贴右会让卡片向左伸过标题、左半截压进侧边栏底下（实机反馈）。
-   * 标题元素用 `_crumbCurrent` 定位（与 crumbWidth 覆盖同一个识别方式）；
-   * 找不到就退回 0（贴着铅笔右对齐的旧定位），宁歪勿丢。
+   * 卡片必须 portal 到 body：dsh 0.2.2-rc.1 给标题容器 `.titleCluster` 加了
+   * `overflow:clip` + `mask-image`，挂在 headerActions 里的绝对定位浮层会被整块裁掉。
+   * 定位改用视口坐标，左缘仍对齐会话标题（找不到标题元素就贴锚点），宁歪勿丢。
    */
-  const [panelLeft, setPanelLeft] = useState<number | null>(null);
+  const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null);
 
   const close = (): void => setOpen(false);
 
@@ -210,19 +211,31 @@ function GenerateTitleAction({
     if (!open) return;
     const anchor = wrapRef.current;
     if (anchor === null) return;
-    const crumb = document.querySelector('[class*="_crumbCurrent"]');
-    if (crumb !== null) {
-      setPanelLeft(crumb.getBoundingClientRect().left - anchor.getBoundingClientRect().left);
-    } else {
-      setPanelLeft(null);
-    }
+    const updatePos = (): void => {
+      const rect = anchor.getBoundingClientRect();
+      const crumb = document.querySelector('[class*="_crumbCurrent"]');
+      const left = crumb !== null ? crumb.getBoundingClientRect().left : rect.left;
+      setPanelPos({
+        // 卡片宽 420，右边留 24px；portal 之后没有父容器兜着，得自己守住视口。
+        left: Math.max(24, Math.min(left, window.innerWidth - 444)),
+        top: rect.bottom + 6,
+      });
+    };
+    updatePos();
     const onDown = (event: MouseEvent): void => {
-      if (wrapRef.current !== null && !wrapRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      const target = event.target as Node;
+      // portal 后卡片不再是锚点的子节点，两个 ref 都要判，否则点输入框就收起。
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
   }, [open]);
 
   const openPanel = (): void => {
@@ -308,14 +321,15 @@ function GenerateTitleAction({
           </button>
         </span>
       </Tooltip>
-      {open ? (
+      {open && panelPos !== null
+        ? createPortal(
         <div
+          ref={panelRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            // 左缘对齐会话标题（打开时实测的偏移）；取不到标题元素时退回贴锚点。
-            left: panelLeft ?? 0,
-            zIndex: 30,
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
+            zIndex: 1000,
             width: 420,
             maxWidth: 'calc(100vw - 48px)',
             padding: 12,
@@ -393,8 +407,10 @@ function GenerateTitleAction({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+        )
+        : null}
     </span>
   );
 }

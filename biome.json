@@ -1,0 +1,15 @@
+{
+	"files": {
+		"includes": ["**", "!lib"]
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"a11y": "off",
+			"suspicious": { "noExplicitAny": "off" },
+			"style": { "noNonNullAssertion": "off", "useImportType": "off" },
+			"complexity": { "noForEach": "off" }
+		}
+	}
+}
