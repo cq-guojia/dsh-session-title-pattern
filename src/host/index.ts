@@ -786,8 +786,12 @@ export function apply(ctx: Context, config: VolatileConfig): void {
   // 模型目录：宿主侧挂一条只读路由，客户端 ModelPicker 自行 fetch（核心库
   // serveModelCatalog + connectHost，两者共用 MODELS_PATH）。目录数据来自
   // llm.listModels()，比读设置镜像 profile 可靠，且插件不再自己拼 groups。
-  // ctx 在 cordis 里以子上下文形式把注入服务当属性挂上，运行时即 services.llm /
-  // services.webServer，与 HostContextLike 等价，仅跨 cordis 类型的结构声明不符。
+  //
+  // 0.35.14 起核心只声明 `webServer` 一条注入线（宿主必启），`llm` 每请求惰性取，
+  // 且 resolveLlm() 已收口「ctx 失活时 ctx.get 抛错」与 ?? 短路洞，取不到回 503。
+  // 0.35.15 起客户端自己兜住启动竞态：首拉失败按 1/2/4s 退避重试 3 次，打开
+  // 选择器或切回页面再按 30s 节流补拉 —— 消费方不必再手动刷目录。
+  // ctx 跨 cordis 类型的结构声明不符，故按 HostContextLike 断言。
   serveModelCatalog(ctx as unknown as HostContextLike, { path: MODELS_PATH });
 
   // 当前生效的配置来源：volatile 字段由宿主在每次设置提交后**原位更新**，

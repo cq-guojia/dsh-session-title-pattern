@@ -143,6 +143,8 @@ export function ConfigPanel({ view, usePanel, save, edit, resetField, discard, t
   const discardRef = useRef(discard);
   discardRef.current = discard;
   useEffect(() => () => discardRef.current(), []);
+  // 目录自愈与补拉由核心内建（首拉失败退避重试、打开选择器/切回页面节流补拉），
+  // 这里不再手动 refreshModelCatalog()，免得多发一次绕过节流的请求。
 
   if (view !== 'page') return null;
   if (!state.available) return <p className="stp-config__note" role="status">{t('unavailable')}</p>;
