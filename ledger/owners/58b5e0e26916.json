@@ -1,6 +1,7 @@
 {
   "identity": {"uuid": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6"},
   "tasks": {
+    "20261110-0544-9ca5-选模型改用核心控件": {"category": null, "created": "2026-11-10 05:44:28", "creator": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "creator_name": "GuoJia-Agent", "finished": null, "owner": "8d557c6d-7c93-43ac-8c73-5d623e82e1c6", "owner_name": "GuoJia-Agent", "started": "2026-11-10 05:44:28", "status": "doing", "tags": ["核心控件", "选模型", "重构"], "title": "选模型改用核心控件", "updated": "2026-11-10 05:44:28", "worklog": "worklog/202611/10-0544-9ca5-选模型改用核心控件.md"}
   },
   "version": "20261022000000"
 }
