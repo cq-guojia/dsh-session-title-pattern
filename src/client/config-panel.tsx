@@ -10,12 +10,11 @@ import { useEffect, useRef, useState } from 'react';
 import { IconLinkOutlineRegular, Toast } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { SettingsFormShell, SettingsFieldState } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots';
-import { Button, Chip, Input } from 'dsh-plugin-core/ui';
+import { Button, Chip, Input, modelCatalog } from 'dsh-plugin-core/ui';
 
 import { LOCALE_NS } from './locales';
 import type { SessionTitlePatternLocaleKey } from './locales';
 import { ModelPairFields } from './model-pair';
-import type { DirectoryState } from './model-pair';
 
 /** 本仓库地址（设置区的第一个链接）。 */
 const PROJECT_URL = 'https://github.com/cq-guojia/dsh-session-title-pattern';
@@ -54,8 +53,6 @@ export type ConfigPanelProps = PropsLocale<typeof LOCALE_NS> & {
   view: 'summary' | 'page';
   /** 表单投影（entry 以 `hooks: { panel: store }` 注入）。 */
   usePanel: <S>(sel: (state: PanelState) => S) => S;
-  /** 模型目录投影（entry 以 `hooks: { directory }` 注入）。 */
-  useDirectory: <S>(sel: (state: DirectoryState) => S) => S;
   /** 保存全部草稿；resolve 出「是否真的落了地」（失败时草稿保留）。 */
   save: () => Promise<boolean>;
   /** 暂存一个字段的草稿文本。 */
@@ -137,9 +134,8 @@ const linkButton = (label: string, url: string): React.JSX.Element => (
   </Button>
 );
 
-export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetField, discard, t }: ConfigPanelProps) {
+export function ConfigPanel({ view, usePanel, save, edit, resetField, discard, t }: ConfigPanelProps) {
   const state = usePanel((s) => s);
-  const directory = useDirectory((s) => s);
   // 保存成功的轻提示：按 seq 计数发新的一条，连存两次也能重启淡出周期。
   const [toast, setToast] = useState<{ seq: number; text: string } | null>(null);
   const toastSeq = useRef(0);
@@ -151,18 +147,19 @@ export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetFie
   if (view !== 'page') return null;
   if (!state.available) return <p className="stp-config__note" role="status">{t('unavailable')}</p>;
 
-  const routes = directory.status === 'ready' ? directory.routes : undefined;
   const providerText = state.provider.text;
   const modelText = state.model.text;
 
   const handleSave = (): void => {
     // 「具体模型自动落到第一个」在保存前一刻补写（官方 save 是原子提交），
     // 显示上从不自动补值，不挂「未保存」。跟随对话模型时 model 无意义，一并清空。
-    if (routes !== undefined) {
+    // routes 取自核心目录单例（connectHost 喂的宿主 serveModelCatalog）。
+    const catalog = modelCatalog.getSnapshot();
+    if (catalog.status === 'ready') {
       if (providerText === '') {
         if (modelText !== '') edit('model', '');
       } else if (modelText === '') {
-        const first = routes.find((route) => route.provider === providerText)?.models[0]?.id;
+        const first = catalog.routes.find((route) => route.provider === providerText)?.models[0]?.id;
         if (first !== undefined) edit('model', first);
       }
     }
@@ -208,7 +205,6 @@ export function ConfigPanel({ view, usePanel, useDirectory, save, edit, resetFie
     <>
       {renderField(FIELD_TOP)}
       <ModelPairFields
-        directory={directory}
         provider={providerText}
         model={modelText}
         disabled={!state.writable}

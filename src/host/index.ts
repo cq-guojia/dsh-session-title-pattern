@@ -18,6 +18,9 @@ import { callTitleModel, detectMessageLang, parseTitleOutput, toSummary } from '
 import type { LlmService, TypeLang } from './llm';
 import { DEFAULT_TITLE_TEMPLATE, buildFallbackTitle, composeTitle } from './rules';
 import { foldSessionTitle, normalizeSessionTitle } from '@deepseek-ai/dsh-session-title';
+import { serveModelCatalog } from 'dsh-plugin-core/host';
+import type { HostContextLike } from 'dsh-plugin-core/host';
+import { MODELS_PATH } from '../shared/models-path';
 
 export const name = 'dsh-session-title-pattern';
 
@@ -779,6 +782,13 @@ function trackRecomputes(
 export function apply(ctx: Context, config: VolatileConfig): void {
   const states = new Map<string, SessionState>();
   const logger = ctx.logger(name);
+
+  // 模型目录：宿主侧挂一条只读路由，客户端 ModelPicker 自行 fetch（核心库
+  // serveModelCatalog + connectHost，两者共用 MODELS_PATH）。目录数据来自
+  // llm.listModels()，比读设置镜像 profile 可靠，且插件不再自己拼 groups。
+  // ctx 在 cordis 里以子上下文形式把注入服务当属性挂上，运行时即 services.llm /
+  // services.webServer，与 HostContextLike 等价，仅跨 cordis 类型的结构声明不符。
+  serveModelCatalog(ctx as unknown as HostContextLike, { path: MODELS_PATH });
 
   // 当前生效的配置来源：volatile 字段由宿主在每次设置提交后**原位更新**，
   // 所以逐字段 `.get()` 读出来的永远是最新值 —— 既不需要 installSection 的
