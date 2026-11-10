@@ -33,7 +33,7 @@ export interface ModelPairFieldsProps {
 /**
  * 一个分组下拉（grouped）：供应商做组头、模型列在下面，不再用两个框。
  * 选「跟随对话模型」发 `''`（两个草稿一起清空）；选中具体模型发 `provider/id`，
- * 按第一个 `/` 拆回双字段。宽度由 `stp-config__model` 限到表单的一半、右边留白。
+ * 按第一个 `/` 拆回双字段。与「重算间隔」同排半宽，`stp-config__model` 铺满所在半格。
  */
 export function ModelPairFields({
   provider,

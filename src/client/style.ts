@@ -24,10 +24,9 @@ export const STP_CSS = `
 .stp-config__failed{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-error)}
 .stp-config__pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
 .stp-config__row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:0 0 24px;border-bottom:1px solid var(--dsw-alias-border-l4)}
-/* grouped 单下拉：只占昔日两框中「一个」的位置（(100% - 8px) / 2），右边留白。
-   核心 .dshpc-picker 默认 inline-block 按内容宽（trigger min-width:120px），
-   这里显式限到半宽并让触发器铺满，否则会缩成一枚小按钮、或反过来占满整行。 */
-.stp-config__field .stp-config__model{display:block;align-self:flex-start;width:calc(50% - 4px);min-width:0;max-width:calc(50% - 4px)}
+/* 一排两列里的单下拉：铺满所在半格（核心 .dshpc-picker 默认 inline-block 按内容宽，
+   trigger min-width:120px，不显式限宽会缩成一枚小按钮）。 */
+.stp-config__field .stp-config__model{display:block;width:100%;min-width:0}
 .stp-config__model .dshpc-picker__trigger{width:100%;min-width:0}
 /* 数字框只要手输，不要浏览器自带的上下箭头。 */
 .stp-config__num::-webkit-inner-spin-button,.stp-config__num::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}

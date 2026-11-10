@@ -205,19 +205,21 @@ export function ConfigPanel({ view, usePanel, save, edit, resetField, discard, t
 
   return (
     <>
-      {renderField(FIELD_TOP)}
-      <ModelPairFields
-        provider={providerText}
-        model={modelText}
-        disabled={!state.writable}
-        overridden={state.provider.overridden || state.model.overridden}
-        onEdit={edit}
-        onReset={() => {
-          resetField('provider');
-          resetField('model');
-        }}
-        t={t}
-      />
+      <div className="stp-config__pair">
+        {renderField(FIELD_TOP)}
+        <ModelPairFields
+          provider={providerText}
+          model={modelText}
+          disabled={!state.writable}
+          overridden={state.provider.overridden || state.model.overridden}
+          onEdit={edit}
+          onReset={() => {
+            resetField('provider');
+            resetField('model');
+          }}
+          t={t}
+        />
+      </div>
       {renderField(FIELD_TEMPLATE)}
       <div className="stp-config__pair">{FIELDS_BOTTOM_ROW.map(renderField)}</div>
       <div className="stp-config__row">
