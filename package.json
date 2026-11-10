@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-title-pattern",
   "description": "Automatically manage dsh session titles in a date｜type｜topic format: a model summarizes the type and topic of the whole conversation.",
-  "version": "0.8.15",
+  "version": "0.8.16",
   "icon": "./icon.svg",
   "keywords": [
     "deepseek",
@@ -80,7 +80,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
-    "dsh-plugin-core": "^0.35.17"
+    "dsh-plugin-core": "^0.35.19"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
