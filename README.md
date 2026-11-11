@@ -1,105 +1,124 @@
-# Session title (session-title-pattern)
+# 会话标题（session-title-pattern）
 
-English | [中文](README.zh.md)
+中文 | [English](README.en.md)
 
-One small tool for the dsh sidebar: **titles you can read at a glance** — which day, what kind of work, what it was about.
+给 dsh 侧边栏加一个小工具：**标题一眼看懂** —— 哪天、哪类事、聊的什么。
 
-![Session titles in the sidebar](docs/images/session-list.png)
+![侧边栏里的会话标题](docs/images/session-list.png)
 
-- **Automatic titles** — every title becomes `0913｜排查｜登录失败`: which day, what kind of work, and what it was about, summarized from the **whole conversation** by a model (two Chinese characters for Chinese, one word for English)
+- **自动命名标题** —— 把标题统一成 `0913｜排查｜登录失败`：哪天、哪一类事、聊的什么，
+  由大模型对**整段对话**总结（中文两个汉字、英文一个单词）
 
-## Install
+## 安装
 
 ```bash
 dsh plugin --profile web add dsh-session-title-pattern
 ```
 
-Every stable release is published to npm, so it works right after installing — no extra configuration and no local build.
+每个稳定正式版都发布到 npm，装完就能用，不需要额外配置，也不需要本地编译。
 
-## Automatic titles
+## 自动命名标题
 
-### What a title looks like
+### 标题长什么样
 
-By default dsh uses a sentence the model happened to produce (for example 「确认当前模型身份及工具查询」); with a dozen sessions on screen you cannot tell which day a session belongs to or what kind of work it was. This plugin turns the title into three parts:
+dsh 默认的标题是模型随手取的一句话（比如「确认当前模型身份及工具查询」），侧边栏一屏十几个
+会话时认不出哪个是哪天、属于哪一类事。本插件把标题改成三段：
 
 ```
-MMDD ｜ type ｜ topic
-0913 ｜ 排查 ｜ DeepSeek-Harness login failure
+MMDD ｜ 类型 ｜ 主题
+0913 ｜ 排查 ｜ DeepSeek-Harness 登录失败
 ```
 
-- **Date** — the day the session was **created**, four digits `MMDD` (your machine's **local** time zone, so no off-by-one day around midnight). It **does not drift when the title is recomputed**: keep chatting past midnight, or run `/retitle` later, and the prefix still shows the day this conversation started
-- **Type** — what the session is about, **following the interface language**: a Chinese UI gets two Chinese characters (排查 / 生成 / 配置…), an English UI gets a single word (Debug / Config / Docs) — an English conversation under a Chinese UI still gets a Chinese type
-- **Topic** — a summary of the **whole conversation**, not the first few characters of the first message
+- **日期** —— 会话**创建那天**，4 位 `MMDD`（本机**本地**时区，东八区凌晨不会串成前一天）。
+  **不随重算漂移**：跨零点继续聊、或事后敲 `/retitle`，前缀都还是这段对话开始那天的日期
+- **类型** —— 概括这段会话在做什么，**跟界面语言走**：界面是中文就两个汉字（排查 / 生成 / 配置…），
+  界面是英文就一个单词（Debug / Config / Docs）—— 英文对话配中文界面，类型仍然是中文
+- **主题** —— 对**整段对话**的凝练，而不是取首条消息的前几个字
 
-The format is yours to change; the default template is `{MMDD}｜{type}｜{topic}`:
+格式可以自己改，默认模板是 `{MMDD}｜{type}｜{topic}`：
 
-| Placeholder | Meaning |
+| 占位符 | 含义 |
 | --- | --- |
-| `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` | Date/time parts, **local time zone**, all taken from the **session creation moment**; freely combinable (`{YYYYMMDD}`, `{HHmmss}`) |
-| `{type}` | Type. **Omit it and there is no type**; when it renders empty the whole segment disappears and the neighbouring separator goes with it |
-| `{topic}` | Topic. **Omit it and there is no topic**; it disappears the same way when empty |
+| `{YYYY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` | 日期时间部件，**本地时区**，全部取**会话创建时刻**，可任意拼接（`{YYYYMMDD}`、`{HHmmss}`） |
+| `{type}` | 类型。**不写就没有类型**；渲染不出内容时**整段消失**，相邻分隔符一并收掉 |
+| `{topic}` | 主题。**不写就没有主题**；同样会在为空时整段消失 |
 
-Change the template directly, e.g. `{topic}｜{MMDD}` (topic first) or `{YYYYMMDD} {topic}` (with the year).
+直接改模板即可，例如 `{topic}｜{MMDD}`（主题在前）、`{YYYYMMDD} {topic}`（带年份）。
 
-### When it updates
+### 什么时候自动更新
 
-- **On the first message** — dsh schedules this itself and produces a first title
-- **Every 10 messages afterwards** (configurable) — this plugin triggers one recompute; the other turns never call the model
-- Only top-level sessions are handled; forked child sessions are not auto-named
+- **第 1 条消息** —— 由 dsh 自身调度，先生成一版标题
+- **之后每 10 条对话**（可配）—— 本插件触发一次重算，其余轮次完全不调用模型
+- 只处理顶层会话，fork 出的子会话不参与自动命名
 
-Each recompute sends only "first message + last main line + last summary + the new turns" — a few hundred tokens in total, **no matter how long the conversation has been going** (earlier text is only ever compressed forward, never re-sent).
+每次重算只发「首条消息 + 上次主线 + 上次摘要 + 新增几轮」，合计几百 token，
+**跟会话聊了多久无关**（早期对话的原文只会向前压缩，不会被重新发送）。
 
-The model follows the session's current main model by default; you can also pick one in the settings.
+模型默认跟随会话当前的主模型；也可以在设置里单独指定。
 
-Failures behave differently depending on what already exists:
+失败时的表现分两种：
 
-- **A title already exists**: timeouts, errors, and a missing route all **keep the previous title** — a good title is never wiped out
-- **No title yet** (the very first attempt failed): instead of waiting for the model, the plugin builds a fallback title locally — the date as usual, **no type**, and the topic taken from the **leading words** of the first message (the same rule dsh uses for its own first-prompt naming: the first 8 whitespace-separated words, then a byte cap; Chinese has no spaces, so for Chinese this is effectively the whole message cut by bytes), e.g. `0915｜login failure reason`. The next recompute replaces it as soon as the model works
+- **已经有标题**：超时、报错、没有可用路由一律**保留上一个标题**，不会把已经好用的标题刷没
+- **还没有标题**（新建会话的第一次就失败）：不再等模型，直接本地拼一版兜底标题 ——
+  日期照常、**类型省略**、主题取首条消息的**前几个词**（与 dsh 自带那次首次命名同一套口径：
+  前 8 个空格分隔的词 + 字节上限；中文没有空格，所以中文实际是整句按字节截），
+  例如 `0915｜登录失败的原因`。下一轮重算只要模型通了就会把它换掉
 
-**The type** uses the same language as the interface copy — both follow dsh's **interface language** (Settings → General → Language). **The topic follows the conversation's language.** So an English conversation with a Chinese UI reads exactly `0915｜排查｜Login 401`.
+**类型**用的语言与界面文案一致 —— 都跟随 dsh 的**界面语言**（设置 → 通用里的语言）；
+**主题**跟随**对话语言**。所以英文对话 + 中文界面得到的正是 `0915｜排查｜Login 401`。
 
-### Manual recompute and rename
+### 手动重算与改名
 
-![The button next to the title, with its tooltip](docs/images/retitle-button.png)
+![标题旁的按钮，悬停显示提示](docs/images/retitle-button.png)
 
-**Click the header button**: the first item to the right of the title is a pencil icon; it opens a "Rename session" card — the input is prefilled with the current title and can be edited by hand; "Generate" really computes a title and **only fills the input**; "Save" writes it and locks it (no further automatic updates), and the lock switch in the bottom-left corner releases it at any time.
+**点头部按钮**：标题右侧第一个位置有个铅笔图标，点开是一张「重命名会话」卡片 ——
+输入框预填当前标题，可以手动改；「自动生成」会真算一版标题、**只填进输入框**；
+「确定保存」写入并锁定（锁定后不再自动更新），左下角的锁定开关可随时解除。
 
-**Type a command**: enter `/retitle` in the input box.
+**敲命令**：在输入框输入 `/retitle` 回车。
 
-> Automatic naming only fires for "a top-level session, the first human message, and no title yet", so later renames can only use the two entry points above. The three-dot menu on each session row (rename / fork / archive) is a closed platform component with no extension slot, so a third-party plugin cannot add menu items to it.
+> 自动命名只在「非 fork 子会话 且 第一条人类消息 且 尚无标题」时触发，所以后续改标题只能走
+> 上面两个入口。会话列表每行的三点菜单（重命名 / 分叉 / 归档）是平台封闭组件、没有扩展位，
+> 第三方插件无法往里加菜单项。
 
-### Title display width
+### 标题显示宽度
 
-dsh renders the title as the last breadcrumb segment, and the upstream stylesheet hard-codes `max-width:220px` for it — after padding and the `MMDD｜type` prefix, only seven or eight Chinese characters are left for the topic. When the client activates, this plugin **injects** an override rule (no configuration needed):
+dsh 把标题渲染成面包屑的最后一段，上游给它写死了 `max-width:220px` —— 扣掉内边距、再减去
+`MMDD｜类型` 前缀，留给主题的只有七八个中文字。本插件在客户端激活时**自动注入**一条覆盖规则
+（无需任何配置）：
 
 ```css
 [class*="_crumbCurrent"]{max-width:min(640px, 60vw) !important;}
 ```
 
-Only the **current session's title** is widened; ancestor sessions and subagent breadcrumbs keep the original width. If upstream renames the class, the rule fails silently (no error — the title just gets short again): select the title element in DevTools and check whether `class` still contains `_crumbCurrent`.
+只放宽**当前会话标题**，祖先会话与子代理的面包屑保持原样。若上游改了类名，这条规则会静默失效
+（不报错，只是标题又变短）—— DevTools 选中标题元素，看 `class` 里是否还有 `_crumbCurrent`
+即可确认。
 
-## Configuration
+## 配置
 
-### Settings UI (recommended)
+### 设置界面（推荐）
 
-![Plugin page: the configuration form under the bundle description](docs/images/config-page.png)
+![插件详情页：描述与条目列表之间的配置表单](docs/images/config-page.png)
 
-Since dsh 0.1.7 the settings live on the plugin's own page: open the **Plugins** view in the sidebar, find this plugin under **Installed**, and open its detail page — the configuration form sits between the description and the entry rows.
+dsh 0.1.7 起，插件设置搬到了插件自己的详情页：打开侧边栏的「**插件**」视图，在「已安装」
+分组里找到本插件并进入详情页，配置表单就在描述与条目列表之间。
 
-| Item | Meaning |
+| 项 | 说明 |
 | --- | --- |
-| **Recompute every N messages** | Default `10`. `0` = compute once when the session is created |
-| **Model for title summaries** (provider / model) | Two dropdowns on one row: pick a provider on the left (first item "follow the chat model" = empty follows the session's main model), then a model on the right — selecting a provider auto-picks its first model. Options come from providers you have configured; falls back to two text fields when the directory is unavailable |
-| **Timeout** | Raise it when the model is slow (e.g. a free tier queueing) |
-| **Title format** / **Title length limit** | What the three parts look like, and how long the title may get |
+| **每隔几条对话重算一次** | 默认 `10`。填 `0` = 只在新建会话时算一次 |
+| **标题总结大模型**（供应商 / 模型） | 一行两个下拉：左边选供应商（首项「跟随对话模型」＝留空跟随会话主模型），右边选具体模型，选中厂家后自动落到它的第一个。选项来自你已配置的供应商；目录读不到时退回两个文本框 |
+| **超时** | 模型慢的时候（比如免费档排队）就往大调 |
+| **标题格式** / **标题长度上限** | 标题的三段长什么样、最长多少 |
 
-Edits are **staged** and written only when you press "Save"; each field marks whether it was **customized** and can be reset on its own; leaving the form discards unsaved edits.
+改动是**暂存**的，点「保存」才写入；每个字段会标出是否**自定义**过，可以单字段「恢复默认」；
+离开页面会自动丢掉没保存的改动。
 
-> The UI copy is **bilingual** and follows dsh's interface language (Settings → General → Language).
+> 界面文案**中英双语**，跟随 dsh 的界面语言（设置 → 通用里的语言）。
 
-### `cordis.patch.yml` in the profile
+### profile 的 `cordis.patch.yml`
 
-For scripted or bulk deployments:
+适合脚本化或批量部署：
 
 ```yaml
 - id: session-title-pattern
@@ -109,46 +128,56 @@ For scripted or bulk deployments:
     maxBytes: 80
 ```
 
-| Key | Type | Default | Meaning |
+| 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `retitleEvery` | number | `10` | How many human messages between title recomputes; minimum `0`; `0` = compute once when the session is created |
-| `provider` | string | empty | Model provider; **must be paired with `model`**; empty follows the session's main model |
-| `model` | string | empty | Model id; **must be paired with `provider`** |
-| `timeoutMs` | number | `90000` | Timeout for one model call (ms) |
-| `maxOutputTokens` | number | `2048` | Output token fuse; reasoning counts against it too. Not shown in the UI; reach for it here when needed |
-| `maxInputBytes` | number | `4096` | Input byte cap for one call |
-| `template` | string | `{MMDD}｜{type}｜{topic}` | Title format template |
-| `maxBytes` | number | `80` | Total title length cap (UTF-8 bytes), minimum 20 |
+| `retitleEvery` | number | `10` | 每多少条人类消息重算一次标题，最小 `0`；`0` = 只在新建会话时算一次 |
+| `provider` | string | 空 | 指定模型 provider，**必须与 `model` 成对**；留空则跟随会话主模型 |
+| `model` | string | 空 | 指定模型 id，**必须与 `provider` 成对** |
+| `timeoutMs` | number | `90000` | 单次模型调用超时（毫秒） |
+| `maxOutputTokens` | number | `2048` | 输出 token 上限的保险丝，推理（思考）同样计入。界面上不出现，需要时走这里 |
+| `maxInputBytes` | number | `4096` | 单次调用输入字节上限 |
+| `template` | string | `{MMDD}｜{type}｜{topic}` | 标题格式模板 |
+| `maxBytes` | number | `80` | 标题总长度上限（UTF-8 字节），最小 20 |
 
-> The `｜` in the default template is a full-width vertical bar (U+FF5C). A placeholder the plugin does not recognize **stays in the title verbatim** (e.g. `{date}`), so a typo in the template is obvious at a glance.
+> 默认模板里的 `｜` 是全角竖线（U+FF5C）。认不出的占位符会**原样留在标题里**（如 `{date}`），
+> 方便一眼看出是模板写错了。
 >
-> ⚠️ `maxBytes` must be ≤ `maxTitleBytes` of the `session-title` row (`dsh-base` uses **80** by default); anything beyond is **silently truncated**.
+> ⚠️ `maxBytes` 必须 ≤ `session-title` 行的 `maxTitleBytes`（`dsh-base` 默认 **80**），
+> 超出部分会被**静默截断**。
 >
-> Precedence is `schema default → composition layer (this section) → user layer (settings UI)`: for a field you changed in the UI, editing `cordis.patch.yml` has no effect until you "Reset" it in the UI first.
+> 优先级是 `schema 默认值 → 组合层（本节） → 用户层（设置界面）`：界面里改过的字段，
+> 改 `cordis.patch.yml` 不会生效，除非先在界面上「恢复默认」。
 
-## When something goes wrong
+## 出问题时
 
-**dsh fails to start**: this plugin ships browser-side code, so a very old dsh may not be compatible. In the profile's `cordis.patch.yml`, **disable only this plugin** and dsh recovers; upgrade dsh and install again afterwards:
+**dsh 启动失败**：本插件带浏览器端代码，dsh 版本过老可能不兼容。在 profile 的
+`cordis.patch.yml` 里**只关掉本插件**即可恢复，之后升级 dsh 再重新安装：
 
 ```yaml
 - id: session-title-pattern
   disabled: true
 ```
 
-## Development
+## 开发
 
 ```bash
 npm install
-npm run build        # builds host first, then client
+npm run build        # 先构建 host 再构建 client
 npm run typecheck
 ```
 
-> **`lib/` is a build artefact committed to git** — dsh loads `main` from `package.json` (`lib/index.mjs`) and never compiles TypeScript at runtime. After changing `src/` you must run `npm run build` again and commit `lib/` with it, or the change will not take effect.
+> **`lib/` 是提交进 git 的构建产物** —— dsh 加载的是 `package.json` 的 `main`（`lib/index.mjs`），
+> 运行时不编译 TypeScript。改完 `src/` 必须重新 `npm run build` 并把 `lib/` 一起提交，
+> 否则改动不会生效。
 
-Implementation details (the cost model, how v0.8.1 wires the configuration form into dsh 0.1.7's plugin-page slot, and lessons from past iterations) were carried in the now-retired root `DEVELOPMENT.md` (removed during the doc-system upgrade — its content is preserved in git history). Its **version / task history** now lives in [`docs/PROGRESS-HISTORY.md`](docs/PROGRESS-HISTORY.md) (closed releases) and [`docs/progress.json`](docs/progress.json) (in-progress), maintained via the `koc-code-doc-progress` skill; design / architecture details are pending extraction to `docs/design/`.
+实现细节（成本模型、v0.8.1 怎么接上 dsh 0.1.7 的插件详情页配置槽位、历代踩坑）原记在根目录
+`DEVELOPMENT.md`（已于文档体系升级时退役删除，内容仍留 git 历史）。它原先承载的版本 / 任务历史现统一收在
+[`docs/PROGRESS-HISTORY.md`](docs/PROGRESS-HISTORY.md)（已结案发版）与 [`docs/progress.json`](docs/progress.json)
+（在办），由 `koc-code-doc-progress` skill 维护；设计 / 架构细节待后续抽取至 `docs/design/`。
 
-> This README has two languages: this file and [README.zh.md](README.zh.md). **Changing one means changing the other** — the copy readers actually see is the one that counts.
+> 本 README 有中英两份：本文件与 [README.md](README.md)。**改一份必须同时改另一份** ——
+> 有读者看的那份才是有效的那份。
 
-## License
+## 许可证
 
 MIT

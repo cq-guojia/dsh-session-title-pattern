@@ -8,7 +8,7 @@
 | 槽位 | 落位 | 说明 |
 |---|---|---|
 | 文档规范 | `docs/README.md`（本文件） | 路径固定 |
-| 项目介绍 | `README.md` / `README.zh.md`（根目录） | 规则允许根目录；双语，改一必同步另一 |
+| 项目介绍 | `README.md` / `README.en.md`（根目录） | 规则允许根目录；双语，改一必同步另一 |
 | 状态表 | `docs/progress.json` | 路径固定，只由脚本写 |
 | 已结案 | `docs/PROGRESS-HISTORY.md` | 路径固定，只由脚本写 |
 | 过程叙事 | `docs/worklog/<年月>/<日>-<时分>-<说明>-<随机码>.md` | 路径固定，建档只由脚本 |
