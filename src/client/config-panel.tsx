@@ -1,16 +1,20 @@
 /**
  * 插件详情页的配置区（dsh 0.1.7 `plugins.bundle.config` 槽位，key = 包名）。
  *
- * 控件一律走核心库分包 `dsh-plugin-core/ui`（Input / Button / Chip / ModelPicker），
+ * 控件一律走核心库分包 `dsh-plugin-core/ui/*`（Input / Button / Chip / ModelPicker），
  * 状态机仍是官方 `SettingsFormModel`：草稿 / dirty / overridden / invalid /
  * saving / failed / 原子保存，一行都不自己管。版式照 `dsh-task-ledger` 的配置区：
  * 保存与两个链接同一排、保存在最前。
  */
 import { useEffect, useRef, useState } from 'react';
-import { IconLinkOutlineRegular, Toast } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Toast } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { SettingsFormShell, SettingsFieldState } from '@deepseek-ai/dsh-client-ui-primitives';
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots';
-import { Button, Chip, Input, modelCatalog } from 'dsh-plugin-core/ui';
+import { Button } from 'dsh-plugin-core/ui/button';
+import { Chip } from 'dsh-plugin-core/ui/chip';
+import { Input } from 'dsh-plugin-core/ui/input';
+import { modelCatalog } from 'dsh-plugin-core/ui/host-data';
+import { Icon } from 'dsh-plugin-core/ui/icons';
 
 import { LOCALE_NS } from './locales';
 import type { SessionTitlePatternLocaleKey } from './locales';
@@ -120,12 +124,12 @@ function configField(props: {
   );
 }
 
-/** 外链按钮：文案与图标逐字照抄 `dsh-task-ledger` 的设置区。 */
+/** 外链按钮：两个链接都指向 GitHub 仓库，图标用核心 logo 库的 GitHub 字形。 */
 const linkButton = (label: string, url: string): React.JSX.Element => (
   <Button
     size="lg"
     variant="outline"
-    icon={<IconLinkOutlineRegular size={16} />}
+    icon={<Icon name="common.logo:github" />}
     onClick={() => {
       window.open(url, '_blank', 'noopener');
     }}

@@ -80,7 +80,7 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
-    "dsh-plugin-core": "^0.35.25"
+    "dsh-plugin-core": "^0.35.28"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

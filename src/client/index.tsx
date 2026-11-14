@@ -17,23 +17,23 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // 官方基础组件。它们都在模块表（PLATFORM_MODULES）里，所以可以正常按 external
 // 引入，不会被内联、也不会触发纯度闸门。用它们是为了与头部其它控件风格一致。
 import { Switch, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives';
-// 核心控件库按需引子路径：ui（控件与样式注入器）、design（styleKit 工厂）。
-import { Button, IconButton, Input, setStyleKit } from 'dsh-plugin-core/ui';
+// 核心库按功能分包引用（0.35.28 起每个控件一个子路径，不再走 `ui` 聚合入口）。
+import { Button, IconButton } from 'dsh-plugin-core/ui/button';
+import { Input } from 'dsh-plugin-core/ui/input';
+import { setStyleKit } from 'dsh-plugin-core/ui/styles';
+import { connectHost } from 'dsh-plugin-core/ui/host-data';
+import { Icon } from 'dsh-plugin-core/ui/icons';
 import { createStyleKit } from 'dsh-plugin-core/design';
 import {
   SettingsFormModel,
   settingsNumberField,
   settingsTextField,
 } from '@deepseek-ai/dsh-client-ui-primitives';
-// 图标必须从命名空间按名取用（见下方 EditIcon 的兜底链），不能具名导入：
-// 上游改名时具名导入在编译期过不了类型、运行时拿到 undefined，React 渲染直接抛错。
-import * as primitives from '@deepseek-ai/dsh-client-ui-primitives';
 // `remote.commands` 的入参是品牌化的 SessionId，不能拿裸 string 顶。
 import type { SessionId } from '@deepseek-ai/dsh-session/types';
 
 import { ConfigPanel } from './config-panel';
 import type { PanelState, PluginConfig } from './config-panel';
-import { connectHost } from 'dsh-plugin-core/ui';
 import { MODELS_PATH } from '../shared/models-path';
 import { LOCALE_NS, zh, en } from './locales';
 import { LOG } from './log';
@@ -120,44 +120,13 @@ type RemoteCommands = Context['remote']['commands'];
 // 依赖没出现的最坏结果只是「没有按钮」。
 
 /**
- * 铅笔图标的三行防御。
+ * 图标统一走核心 `Icon`（字体图标库）：名字不认识时它只返回 null，不像过去的
+ * 官方命名空间那样解析成 undefined 让 React 抛错 —— v0.8.0 那次「整个头部动作区
+ * 静默消失」的坑，不会再以这种方式出现。缺字形最多是空白位 + 控制台一次告警。
  *
- * dsh 0.1.7 把图标集整体改名（`IconEditOutline16` → `IconEditOutlineRegular`），
- * 缺失的名字在上游模块系统里解析成 undefined，React 渲染直接抛
- * "Element type is invalid"，**整个头部动作区静默消失** —— v0.8.0 的铅笔就是这么
- * 没的。所以这里不用具名导入，而是从模块命名空间上**按名取用**并逐级兜底：
- * 上游再改名时只是图标退回内联 SVG（控制台 warn 一次），按钮不再整块消失。
+ * 库名不可省：`common.base` 是跨框架共用的基础库（核心自有库 dsh-plugin-core.base
+ * 目前只有占位字形）。
  */
-type IconLike = (props: { size?: number }) => React.ReactNode;
-
-const FallbackEditIcon: IconLike = ({ size = 16 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.3"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M11.13 2.09a1.56 1.56 0 0 1 2.2 2.2L5.4 12.23l-3.02.9.9-3.02 7.85-8.02z" />
-  </svg>
-);
-
-/**
- * 三行兜底链：0.1.7 的 `IconEditOutlineRegular` ?? 旧名 `IconEditOutline16` ?? 内联 SVG。
- * 都没有时只在控制台 warn 一次，按钮照常渲染 —— 宁可图标朴素，绝不整块消失。
- */
-const EditIcon = ((primitives as unknown as Record<string, unknown>).IconEditOutlineRegular ??
-  (primitives as unknown as Record<string, unknown>).IconEditOutline16 ??
-  FallbackEditIcon) as typeof FallbackEditIcon;
-
-if (EditIcon === FallbackEditIcon) {
-  console.warn(`${LOG} 上游图标导出表里没有铅笔图标，已退回内联 SVG`);
-}
-
 type HeaderActionProps = PropsRuntime<typeof SLOT> & {
   /** 算一版标题草稿：成功时 resolve 出标题文本，失败/不可用 resolve undefined。 */
   suggest: () => Promise<string | undefined>;
@@ -294,7 +263,7 @@ function GenerateTitleAction({
           <IconButton
             variant="plain"
             size="md"
-            icon={<EditIcon size={16} />}
+            icon={<Icon name="common.base:xiugai" />}
             label={t('renameTitle')}
             disabled={running}
             onClick={() => (open ? close() : openPanel())}
@@ -329,7 +298,13 @@ function GenerateTitleAction({
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }}>
               {t('renameTitle')}
             </span>
-            <IconButton variant="plain" size="sm" icon="×" label={t('closeAria')} onClick={close} />
+            <IconButton
+              variant="plain"
+              size="sm"
+              icon={<Icon name="common.base:guanbi" />}
+              label={t('closeAria')}
+              onClick={close}
+            />
           </div>
           <Input
             value={draft}

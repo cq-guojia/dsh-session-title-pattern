@@ -7,7 +7,9 @@
  * 拆回双字段草稿。默认项由 `defaultLabel` 自定义成「跟随对话模型」，置顶且始终可选，
  * 因此选过具体模型后仍能选回默认。目录 loading / 不可用时核心自带 degraded 提示。
  */
-import { Button, Chip, ModelPicker } from 'dsh-plugin-core/ui';
+import { Button } from 'dsh-plugin-core/ui/button';
+import { Chip } from 'dsh-plugin-core/ui/chip';
+import { ModelPicker } from 'dsh-plugin-core/ui/model-picker';
 
 import type { SessionTitlePatternLocaleKey } from './locales';
 
